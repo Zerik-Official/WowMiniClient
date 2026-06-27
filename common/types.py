@@ -184,11 +184,11 @@ class Packet:
     """
 
     def __init__(self, id: int, data: bytes = b"") -> None:
-        self.id = id
-        self.data = bytearray(data)
-        self._pos = 0
-        self._bit_pos = 7
-        self._current_byte = 0
+        self.id: int = id
+        self.data: bytearray = bytearray(data)
+        self._pos: int = 0
+        self._bit_pos: int = 7
+        self._current_byte: int = 0
 
     def remaining(self) -> int:
         """Return the number of unread bytes."""
@@ -328,7 +328,7 @@ class PacketWriter:
     """Helper for building packet payloads with sequential writes."""
 
     def __init__(self) -> None:
-        self.data = bytearray()
+        self.data: bytearray = bytearray()
 
     def write_byte(self, val: int) -> None:
         """Write a single byte."""
@@ -375,9 +375,9 @@ class PacketBitWriter:
     """Bit-level writer for Cataclysm+ message building."""
 
     def __init__(self) -> None:
-        self.data = bytearray()
-        self._bit_pos = 8
-        self._current_byte = 0
+        self.data: bytearray = bytearray()
+        self._bit_pos: int = 8
+        self._current_byte: int = 0
 
     def write_bit(self, bit: int) -> None:
         """Write a single bit."""
