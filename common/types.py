@@ -3,17 +3,17 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
 
 class WowExpansion(StrEnum):
     """Supported World of Warcraft expansions."""
 
-    VANILLA = "1.12.1"
-    TBC = "2.4.3"
-    WOTLK = "3.3.5"
-    CATACLYSM = "4.3.4"
-    MOP = "5.4.8"
+    VANILLA: Final[str] = "1.12.1"
+    TBC: Final[str] = "2.4.3"
+    WOTLK: Final[str] = "3.3.5"
+    CATACLYSM: Final[str] = "4.3.4"
+    MOP: Final[str] = "5.4.8"
 
     @staticmethod
     def from_version(version: str) -> WowExpansion:
@@ -46,8 +46,8 @@ class WowExpansion(StrEnum):
 class Platform(StrEnum):
     """Client platform (Windows or Mac)."""
 
-    WINDOWS = "Windows"
-    MAC = "Mac"
+    WINDOWS: Final[str] = "Windows"
+    MAC: Final[str] = "Mac"
 
     @staticmethod
     def from_string(value: str) -> Platform:
@@ -68,9 +68,9 @@ class Platform(StrEnum):
 class ChatDirection(StrEnum):
     """Direction of chat message relay."""
 
-    BOTH = "both"
-    WOW_TO_DISCORD = "wow_to_discord"
-    DISCORD_TO_WOW = "discord_to_wow"
+    BOTH: Final[str] = "both"
+    WOW_TO_DISCORD: Final[str] = "wow_to_discord"
+    DISCORD_TO_WOW: Final[str] = "discord_to_wow"
 
 
 @dataclass
