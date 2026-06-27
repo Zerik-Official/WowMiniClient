@@ -13,7 +13,8 @@ from typing import Any
 
 from utils.logger import Tags, log
 from common.chat import ChatEvents
-from common.types import Packet, PacketWriter, WowExpansion, global_state
+from game.core.buffer import Packet, PacketWriter
+from common.types import WowExpansion, global_state
 from game.core.command_handler import GameCommandHandler
 from game.core.packets import (
     AuthResponseCodes,

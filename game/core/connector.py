@@ -8,7 +8,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
-from common.types import Packet, WowExpansion, global_state
+from game.core.buffer import Packet
+from common.types import WowExpansion, global_state
 from crypto.header import (
     GameHeaderCrypt,
     GameHeaderCryptMoP,

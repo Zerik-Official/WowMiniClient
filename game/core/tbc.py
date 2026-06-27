@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import time
 
-from common.types import Packet, PacketWriter, global_state
+from game.core.buffer import Packet, PacketWriter
+from common.types import global_state
 from utils.logger import Tags, log
 from game.core.packets import GamePacketsTBC
 from game.core.vanilla import GamePacketHandler

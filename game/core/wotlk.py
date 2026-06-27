@@ -10,7 +10,8 @@ import struct
 
 from common.chat import ChatEvents
 from utils.logger import Tags, log
-from common.types import Packet, PacketWriter, global_state
+from game.core.buffer import Packet, PacketWriter
+from common.types import global_state
 from game.core.packets import GamePacketsWotLK
 from game.core.tbc import GamePacketHandlerTBC
 from game.models import (

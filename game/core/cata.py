@@ -8,7 +8,8 @@ import hashlib
 import random
 import struct
 
-from common.types import Packet, PacketBitWriter, PacketWriter, global_state
+from game.core.buffer import Packet, PacketBitWriter, PacketWriter
+from common.types import global_state
 from utils.logger import Tags, log
 from game.core.packets import (
     AuthResponseCodes,
