@@ -449,6 +449,7 @@ class _Global:
         self.wow_to_discord: dict[
             tuple[int, str | None], set[tuple[str, DiscordChannelConfig]]
         ] = defaultdict(set)
+        self.wow_channel_filters: dict[tuple[int, str | None], FiltersConfig] = {}
         self.guild_events_to_discord: dict[str, set[str]] = defaultdict(set)
 
         self.realm_build: int = 0
