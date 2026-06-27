@@ -5,6 +5,7 @@ description = "Lightweight headless World of Warcraft client written in Python"
 requires-python = ">=3.12"
 dependencies = [
     "colorama>=0.4.6",
+    "discord-py>=2.3.0",
 ]
 
 [project.optional-dependencies]
