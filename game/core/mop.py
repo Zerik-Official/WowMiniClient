@@ -5,11 +5,11 @@ MoP game packet handler.
 from __future__ import annotations
 
 import hashlib
-import logging
 import random
 import struct
 
 from common.chat import ChatEvents
+from utils.logger import Tags, log
 from common.types import Packet, PacketBitWriter, PacketWriter, global_state
 from game.core.packets import (
     AuthResponseCodes,
@@ -24,14 +24,21 @@ from game.models import (
     GuildInfo,
     GuildMember,
     NameQueryMessage,
-    Player,
 )
 
-logger = logging.getLogger(__name__)
-
-
 class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
+    """MoP game packet handler with guild event extensions."""
+
     def handle_packet(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Dispatch packets unique to the Mists of Pandaria expansion.
+
+        Args:
+            msg: Incoming packet with opcode and payload.
+
+        Returns:
+            List of (opcode, payload) tuples to send back to the server.
+        """
         mid = msg.id
         if mid == self.SMSG_GUILD_MOTD:
             return self._handle_mop_guild_motd(msg)
@@ -50,6 +57,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return super().handle_packet(msg)
 
     def send_name_query(self, guid: int) -> None:
+        """
+        Request the name for a character GUID using MoP bit-packed format.
+
+        Args:
+            guid: 64-bit character GUID to look up.
+        """
         pw = PacketBitWriter()
         guid_bytes = list(struct.pack("<Q", guid))
         pw.write_bit_seq(guid_bytes, 4)
@@ -81,7 +94,7 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         guid = struct.unpack("<Q", bytes(guid_mask))[0]
 
         if not has_name_data:
-            logger.error(f"RECV SMSG_NAME_QUERY - Name not known for guid {guid}")
+            log("ERROR", Tags.GAME, f"RECV SMSG_NAME_QUERY - Name not known for guid {guid}")
             return NameQueryMessage(guid, "UNKNOWN", char_class)
 
         msg.reset_bit_reader()
@@ -532,14 +545,14 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         target_name = self.guild_roster.get(target_guid)
 
         if name is None or target_name is None:
-            logger.error("GUID for SMSG_GUILD_RANKS_UPDATE not found in guild roster!")
+            log("ERROR", Tags.GAME, "GUID for SMSG_GUILD_RANKS_UPDATE not found in guild roster!")
             return
 
         rank_name = ""
         if self.guild_info and rank in self.guild_info.ranks:
             rank_name = self.guild_info.ranks[rank]
         else:
-            logger.error(f"Rank ID {rank} for SMSG_GUILD_RANKS_UPDATE not found!")
+            log("ERROR", Tags.GAME, f"Rank ID {rank} for SMSG_GUILD_RANKS_UPDATE not found!")
 
         event = GuildEvents(True).GE_PROMOTED if rank_order == 1 else GuildEvents(True).GE_DEMOTED
         self._handle_guild_event_common(event, [name.name, target_name.name, rank_name])
