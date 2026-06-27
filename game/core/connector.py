@@ -5,7 +5,6 @@ GameConnector: creates expansion-appropriate handler, decoder, encoder, and cryp
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -36,10 +35,10 @@ from game.handler import (
 )
 from utils.logger import Tags, log
 
-logger = logging.getLogger(__name__)
-
 
 class GameConnector:
+    """Async TCP connector to the WoW game world server."""
+
     def __init__(self, host: str, port: int, realm_name: str,
                  realm_id: int, session_key: bytes,
                  game_event_callback: Any,
@@ -58,8 +57,17 @@ class GameConnector:
         self._encoder: Any = None
 
     async def connect(self) -> None:
-        logger.info(
-            f"Connecting to game server {self.realm_name} ({self.host}:{self.port})"
+        """
+        Connect to the game world server and enter the message loop.
+
+        Selects the appropriate handler, decoder, encoder, and crypt
+        based on the configured expansion. Runs until the connection
+        is closed or an error occurs.
+
+        Raises:
+            ValueError: If the expansion is not supported.
+        """
+        log("INFO", Tags.GAME, f"Connecting to game server {self.realm_name} ({self.host}:{self.port})"
         )
 
         reader, writer = await asyncio.wait_for(
@@ -129,11 +137,12 @@ class GameConnector:
             self._on_handler_ready(self._handler)
         self._handler.on_connected()
 
+        ping_task = asyncio.create_task(self._ping_loop())
         try:
             while True:
-                data = await asyncio.wait_for(reader.read(65536), timeout=30)
+                data = await asyncio.wait_for(reader.read(65536), timeout=60)
                 if not data:
-                    logger.warning("Game server closed the connection.")
+                    log("WARNING", Tags.GAME, "Game server closed the connection.")
                     break
                 packets = self._decoder.feed(data)
                 for opcode, payload in packets:
@@ -142,9 +151,19 @@ class GameConnector:
                     for oid, pl in responses:
                         self._send(oid, pl)
         except (asyncio.CancelledError, ConnectionError, TimeoutError) as e:
-            logger.error(f"Game connection lost: {e}")
+            log("ERROR", Tags.GAME, f"Game connection lost: {e}")
         finally:
+            ping_task.cancel()
             self._handler.disconnect()
+
+    async def _ping_loop(self) -> None:
+        await asyncio.sleep(30)
+        while True:
+            if self._handler and self._handler.in_world:
+                payload = self._handler.ping()
+                if payload is not None:
+                    self._send(self._handler.CMSG_PING, payload)
+            await asyncio.sleep(30)
 
     def _send(self, msg_id: int, payload: bytes) -> None:
         if self._writer is None:
@@ -153,6 +172,7 @@ class GameConnector:
         self._writer.write(data)
 
     def disconnect(self) -> None:
+        """Close the connection to the game server."""
         if self._writer:
             self._writer.close()
             self._writer = None
