@@ -5,30 +5,36 @@ Cataclysm game packet handler.
 from __future__ import annotations
 
 import hashlib
-import logging
 import random
 import struct
 
 from common.types import Packet, PacketBitWriter, PacketWriter, global_state
+from utils.logger import Tags, log
 from game.core.packets import (
     AuthResponseCodes,
     GamePacketsCataclysm,
-    GuildEvents,
 )
 from game.core.wotlk import GamePacketHandlerWotLK
 from game.models import (
     AuthChallengeMessage,
     CharEnumMessage,
-    ChatMessage,
     GuildInfo,
     GuildMember,
 )
 
-logger = logging.getLogger(__name__)
-
-
 class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
+    """Cataclysm game packet handler with bit-packed parsing."""
+
     def handle_packet(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Dispatch packets unique to the Cataclysm expansion.
+
+        Args:
+            msg: Incoming packet with opcode and payload.
+
+        Returns:
+            List of (opcode, payload) tuples to send back to the server.
+        """
         mid = msg.id
         if mid == self.WOW_CONNECTION:
             return [self._handle_wow_connection()]
@@ -263,4 +269,4 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return msg.slice(length).decode("utf-8", errors="replace")
 
     def _handle_notification(self, msg: Packet) -> None:
-        logger.info(f"Notification: {self._parse_notification(msg)}")
+        log("INFO", Tags.GAME, f"Notification: {self._parse_notification(msg)}")
