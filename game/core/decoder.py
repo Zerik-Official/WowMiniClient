@@ -5,17 +5,17 @@ Merged from GamePacketDecoder through GamePacketDecoderMoP.
 
 from __future__ import annotations
 
-import logging
 import struct
 import zlib
 
 from common.types import global_state
 from game.core.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
-
-logger = logging.getLogger(__name__)
+from utils.logger import Tags, log
 
 
 class GamePacketDecoder(GamePackets):
+    """Vanilla/TBC packet decoder with header parsing and decryption."""
+
     HEADER_LENGTH = 4
 
     def __init__(self) -> None:
@@ -23,6 +23,17 @@ class GamePacketDecoder(GamePackets):
         self._id = 0
 
     def feed(self, data: bytes) -> list[tuple[int, bytes]]:
+        """
+        Parse raw TCP data into a list of decoded packets.
+
+        Handles header parsing, decryption, and decompression.
+
+        Args:
+            data: Raw bytes received from the server.
+
+        Returns:
+            List of (opcode, payload) tuples for each complete packet.
+        """
         packets: list[tuple[int, bytes]] = []
         buf = bytearray(data)
         while len(buf) >= self.HEADER_LENGTH:
@@ -40,7 +51,7 @@ class GamePacketDecoder(GamePackets):
                 payload = bytes(buf[: self._size])
                 buf = buf[self._size :]
                 new_id, decompressed = self._decompress(self._id, payload)
-                logger.debug("RECV PACKET: %04X - %s", new_id, decompressed.hex())
+                log("DEBUG", Tags.GAME, f"RECV PACKET: {new_id:04X} - {decompressed.hex()}")
                 packets.append((new_id, decompressed))
                 self._size = 0
                 self._id = 0
@@ -63,6 +74,8 @@ class GamePacketDecoder(GamePackets):
 
 
 class GamePacketDecoderWotLK(GamePacketDecoder):
+    """WotLK packet decoder with extended encrypted header format."""
+
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
         if (decrypted[0] & 0x80) == 0x80:
             crypt = global_state.game_crypt
@@ -82,6 +95,8 @@ class GamePacketDecoderWotLK(GamePacketDecoder):
 
 
 class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
+    """Cataclysm packet decoder with zlib decompression."""
+
     def __init__(self) -> None:
         super().__init__()
         self._inflater = zlib.decompressobj()
@@ -103,6 +118,8 @@ class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
 
 
 class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
+    """MoP packet decoder with compact header and SMSG_COMPRESSED_DATA."""
+
     def __init__(self) -> None:
         super().__init__()
         self._inflater = zlib.decompressobj(-zlib.MAX_WBITS)
