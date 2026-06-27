@@ -16,13 +16,13 @@ from crypto.header import (
     GameHeaderCryptTBC,
     GameHeaderCryptWotLK,
 )
-from game.decoder import (
+from game.core.decoder import (
     GamePacketDecoder,
     GamePacketDecoderCataclysm,
     GamePacketDecoderMoP,
     GamePacketDecoderWotLK,
 )
-from game.encoder import (
+from game.core.encoder import (
     GamePacketEncoder,
     GamePacketEncoderCataclysm,
     GamePacketEncoderMoP,
@@ -34,16 +34,12 @@ from game.handler import (
     GamePacketHandlerTBC,
     GamePacketHandlerWotLK,
 )
+from utils.logger import Tags, log
 
 logger = logging.getLogger(__name__)
 
 
 class GameConnector:
-    """
-    Manages the game server connection, selecting the correct
-    decoder, encoder, handler, and crypt for the configured expansion.
-    """
-
     def __init__(self, host: str, port: int, realm_name: str,
                  realm_id: int, session_key: bytes,
                  game_event_callback: Any,
@@ -62,10 +58,6 @@ class GameConnector:
         self._encoder: Any = None
 
     async def connect(self) -> None:
-        """
-        Connect to the game server and start the read loop.
-        Selects components based on expansion.
-        """
         logger.info(
             f"Connecting to game server {self.realm_name} ({self.host}:{self.port})"
         )
@@ -137,7 +129,6 @@ class GameConnector:
             self._on_handler_ready(self._handler)
         self._handler.on_connected()
 
-        # Read loop
         try:
             while True:
                 data = await asyncio.wait_for(reader.read(65536), timeout=30)
@@ -156,14 +147,12 @@ class GameConnector:
             self._handler.disconnect()
 
     def _send(self, msg_id: int, payload: bytes) -> None:
-        """Encode and send a packet."""
         if self._writer is None:
             return
         data = self._encoder.encode(msg_id, payload)
         self._writer.write(data)
 
     def disconnect(self) -> None:
-        """Close the connection."""
         if self._writer:
             self._writer.close()
             self._writer = None

@@ -10,14 +10,12 @@ import struct
 import zlib
 
 from common.types import global_state
-from game.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
+from game.core.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
 
 logger = logging.getLogger(__name__)
 
 
 class GamePacketDecoder(GamePackets):
-    """Base packet decoder for Vanilla/TBC. 4-byte encrypted header."""
-
     HEADER_LENGTH = 4
 
     def __init__(self) -> None:
@@ -25,15 +23,6 @@ class GamePacketDecoder(GamePackets):
         self._id = 0
 
     def feed(self, data: bytes) -> list[tuple[int, bytes]]:
-        """
-        Feed incoming data and extract completed packets.
-
-        Args:
-            data: Raw bytes from the network stream.
-
-        Returns:
-            List of (opcode, payload) tuples for completed packets.
-        """
         packets: list[tuple[int, bytes]] = []
         buf = bytearray(data)
         while len(buf) >= self.HEADER_LENGTH:
@@ -60,25 +49,20 @@ class GamePacketDecoder(GamePackets):
         return packets
 
     def _parse_header(self, header: bytes) -> tuple[int, int]:
-        """Parse an unencrypted 4-byte header. (size, id) both big-endian."""
         size = struct.unpack(">H", header[:2])[0] - 2
         id_ = struct.unpack("<H", header[2:4])[0]
         return id_, size
 
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
-        """Parse an encrypted 4-byte header after decryption."""
         size = ((decrypted[0] & 0xFF) << 8 | decrypted[1] & 0xFF) - 2
         id_ = (decrypted[3] & 0xFF) << 8 | decrypted[2] & 0xFF
         return id_, size
 
     def _decompress(self, id_: int, data: bytes) -> tuple[int, bytes]:
-        """Vanilla/TBC has no compression. Override in Cata/MoP."""
         return id_, data
 
 
 class GamePacketDecoderWotLK(GamePacketDecoder):
-    """WotLK decoder with variable-size header support."""
-
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
         if (decrypted[0] & 0x80) == 0x80:
             crypt = global_state.game_crypt
@@ -98,8 +82,6 @@ class GamePacketDecoderWotLK(GamePacketDecoder):
 
 
 class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
-    """Cataclysm decoder with zlib decompression."""
-
     def __init__(self) -> None:
         super().__init__()
         self._inflater = zlib.decompressobj()
@@ -121,8 +103,6 @@ class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
 
 
 class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
-    """MoP decoder: raw deflate (no zlib header), bit-packed header."""
-
     def __init__(self) -> None:
         super().__init__()
         self._inflater = zlib.decompressobj(-zlib.MAX_WBITS)
@@ -146,7 +126,7 @@ class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
     def _decompress(self, id_: int, data: bytes) -> tuple[int, bytes]:
         if id_ == self.SMSG_COMPRESSED_DATA:
             decompressed_size = struct.unpack("<I", data[:4])[0]
-            data = data[12:]  # skip size + 8 bytes adler checksums
+            data = data[12:]
             decompressed = self._inflater.decompress(data)
             new_id = struct.unpack("<H", decompressed[:2])[0]
             payload = decompressed[4:]

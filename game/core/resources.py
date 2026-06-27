@@ -11,8 +11,6 @@ from common.types import WowExpansion
 
 
 class GameResources:
-    """Lazy-loaded dictionaries mapping IDs to display names."""
-
     AREA: ClassVar[dict[int, str]] = {}
     ACHIEVEMENT: ClassVar[dict[int, str]] = {}
 
@@ -25,12 +23,6 @@ class GameResources:
 
     @classmethod
     def init_for_expansion(cls, expansion: WowExpansion) -> None:
-        """
-        Load area and achievement data. Area file depends on expansion.
-
-        Args:
-            expansion: Current game expansion.
-        """
         if expansion in (WowExpansion.VANILLA, WowExpansion.TBC, WowExpansion.WOTLK):
             cls.AREA = cls._read_csv("pre_cata_areas.csv")
         else:
@@ -39,15 +31,6 @@ class GameResources:
 
     @classmethod
     def _read_csv(cls, filename: str) -> dict[int, str]:
-        """
-        Read a CSV file from the 'data' package directory.
-
-        Args:
-            filename: CSV file name (e.g. "pre_cata_areas.csv").
-
-        Returns:
-            Dict mapping integer ID to display name string.
-        """
         result: dict[int, str] = {}
         data = pkgutil.get_data("data", filename)
         if data is None:

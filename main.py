@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Entry point for WowMiniClient.
 
@@ -15,7 +14,7 @@ from pathlib import Path
 from bot.client import DiscordBot
 from common.config import load_config
 from common.types import ChatDirection, WowChatConfig, global_state
-from game.connector import GameConnector
+from game.core.connector import GameConnector
 from game.handler import GamePacketHandler
 from realm.connector import RealmConnector
 from utils.logger import Tags, log
@@ -99,16 +98,13 @@ class App:
             f"(build {build_num})",
         )
 
-        # Discord bot
         self.bot = DiscordBot(cfg)
         bot_task = asyncio.create_task(
             self.bot.start(cfg.discord.token, reconnect=True)
         )
 
-        # Give the bot a moment to connect
         await asyncio.sleep(2)
 
-        # Realm auth
         rl = cfg.wow.realmlist
         self.realm_connector = RealmConnector(
             host=rl.host,
@@ -127,7 +123,6 @@ class App:
         )
         await self.realm_connector.connect()
 
-        # Keep running until bot disconnects
         await bot_task
 
 

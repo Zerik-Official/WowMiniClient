@@ -11,8 +11,8 @@ from typing import Any
 import discord
 
 from common.types import WowChatConfig, global_state
-from game.command_handler import GameCommandHandler
-from game.resources import GameResources
+from game.core.command_handler import GameCommandHandler
+from game.core.resources import GameResources
 from utils.logger import Tags, log
 
 _DOT_COMMAND_RE = re.compile(r"^\.(\w+)\s*(.*)")

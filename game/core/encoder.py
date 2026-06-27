@@ -9,26 +9,14 @@ import logging
 import struct
 
 from common.types import global_state
-from game.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
+from game.core.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
 
 logger = logging.getLogger(__name__)
 
 
 class GamePacketEncoder(GamePackets):
-    """Base packet encoder. 4-byte header (unencrypted) or 6-byte (encrypted)."""
-
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
-        """
-        Encode a packet for sending.
-
-        Args:
-            msg_id: Opcode.
-            payload: Packet body bytes.
-
-        Returns:
-            Encoded binary packet (header + body).
-        """
         crypt = global_state.game_crypt
         unencrypted = msg_id == GamePacketEncoder.CMSG_AUTH_CHALLENGE
         header_size = 4 if unencrypted else 6
@@ -50,8 +38,6 @@ class GamePacketEncoder(GamePackets):
 
 
 class GamePacketEncoderCataclysm(GamePacketEncoder, GamePacketsCataclysm):
-    """Cataclysm encoder: also allows WOW_CONNECTION as unencrypted."""
-
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
         crypt = global_state.game_crypt
@@ -76,8 +62,6 @@ class GamePacketEncoderCataclysm(GamePacketEncoder, GamePacketsCataclysm):
 
 
 class GamePacketEncoderMoP(GamePacketEncoderCataclysm, GamePacketsMoP):
-    """MoP encoder: 4-byte bit-packed header (size << 13 | id & 0x1FFF)."""
-
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
         crypt = global_state.game_crypt
