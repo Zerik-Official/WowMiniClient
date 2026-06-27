@@ -17,6 +17,54 @@ from utils.logger import Tags, log
 
 _DOT_COMMAND_RE = re.compile(r"^\.(\w+)\s*(.*)")
 
+_WOW_LINK_RE = re.compile(r"\|H(\w+):([^|]+)\|h\[([^\]]+)\]\|h\|r")
+_WOW_COLOR_RE = re.compile(r"\|c[0-9a-fA-F]{8}")
+_WOW_RESET_RE = re.compile(r"\|r")
+_WOW_H_RE = re.compile(r"\|h")
+
+
+def _normalize_db_url(url: str | None) -> str | None:
+    """Normalize item database URL (handle missing protocol, trailing slash)."""
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    return url.rstrip("/")
+
+
+def _convert_wow_markup(text: str, item_db: str | None) -> str:
+    """Convert WoW chat markup (item/trade/quest links, colors) to Discord markdown."""
+    db_url = _normalize_db_url(item_db)
+
+    def _replace_link(match: re.Match) -> str:
+        tp = match.group(1).lower()
+        data = match.group(2)
+        name = match.group(3)
+        link_id = data.split(":")[0] if data else ""
+
+        if db_url:
+            if tp == "item":
+                url = f"{db_url}/?item={link_id}"
+            elif tp in ("trade", "spell", "enchant"):
+                url = f"{db_url}/?spell={link_id}"
+            elif tp == "quest":
+                url = f"{db_url}/?quest={link_id}"
+            elif tp == "achievement":
+                url = f"{db_url}/?achievement={link_id}"
+            else:
+                return name
+            return f"[{name}]({url})"
+        return name
+
+    text = _WOW_LINK_RE.sub(_replace_link, text)
+    text = _WOW_COLOR_RE.sub("", text)
+    text = _WOW_RESET_RE.sub("", text)
+    text = _WOW_H_RE.sub("", text)
+    return text.strip()
+
 
 def _fmt(template: str, **kwargs: str | None) -> str:
     """Replace %key placeholders with values, dropping unused ones."""
@@ -58,13 +106,11 @@ class DiscordBot(discord.Client):
         self._command_handler: GameCommandHandler | None = None
         self._connected_channel: Any = None
 
-    # -- Handler wiring ------------------------------------------------
 
     def set_command_handler(self, handler: GameCommandHandler) -> None:
         """Set the handler for sending messages to the WoW game server."""
         self._command_handler = handler
 
-    # -- Game event callbacks (called from game loop) ------------------
 
     def connected(self) -> None:
         """Called when the WoW client enters the world."""
@@ -95,11 +141,21 @@ class DiscordBot(discord.Client):
         targets = global_state.wow_to_discord.get(key)
         if not targets:
             return
+        wow_filters = global_state.wow_channel_filters.get(key)
+        message = _convert_wow_markup(message, self._config.discord.item_database)
         for discord_channel_name, dcc in targets:
+            if self._is_filtered(message, wow_filters) or self._is_filtered(message, dcc.filters):
+                continue
             formatted = _fmt(dcc.format, user=sender_name, message=message)
             asyncio.create_task(
                 self._send_to_channel(discord_channel_name, formatted)
             )
+
+    def _is_filtered(self, message: str, filters: Any) -> bool:
+        """Return True if the message matches any filter pattern."""
+        if not filters or not filters.enabled:
+            return False
+        return any(re.search(p, message) for p in filters.patterns)
 
     def guild_event(self, event_key: str, messages: list[str]) -> None:
         """Relay a guild event to the configured Discord channels."""
@@ -138,8 +194,6 @@ class DiscordBot(discord.Client):
         for channel_name in targets:
             asyncio.create_task(self._send_to_channel(channel_name, formatted))
 
-    # -- Discord event handlers ---------------------------------------
-
     async def on_ready(self) -> None:
         """Log when the bot connects to Discord."""
         name = self.user.name if self.user else "Unknown"
@@ -172,14 +226,8 @@ class DiscordBot(discord.Client):
             return
 
         for wcc in wow_configs:
-            formatted = _fmt(
-                wcc.format,
-                user=message.author.display_name,
-                message=message.content,
-            )
+            formatted = _fmt(wcc.format, message=message.content)
             handler.send_message_to_wow(wcc.type, formatted, wcc.channel)
-
-    # -- Internal helpers ---------------------------------------------
 
     async def _handle_dot_command(
         self,
