@@ -27,10 +27,12 @@ def _build_channel_maps(config: WowChatConfig) -> None:
         if direction in (ChatDirection.BOTH, ChatDirection.DISCORD_TO_WOW):
             global_state.discord_to_wow[entry.discord.channel].add(entry.wow)
         if direction in (ChatDirection.BOTH, ChatDirection.WOW_TO_DISCORD):
-            key = (entry.wow.type, entry.wow.channel)
+            key = (entry.wow.type, entry.wow.channel.lower() if entry.wow.channel else None)
             global_state.wow_to_discord[key].add(
                 (entry.discord.channel, entry.discord),
             )
+            if entry.wow.filters and entry.wow.filters.enabled:
+                global_state.wow_channel_filters[key] = entry.wow.filters
 
     guild = config.guild
     if guild:
@@ -99,9 +101,7 @@ class App:
         )
 
         self.bot = DiscordBot(cfg)
-        bot_task = asyncio.create_task(
-            self.bot.start(cfg.discord.token, reconnect=True)
-        )
+        bot_task = asyncio.create_task(self._run_discord(cfg.discord.token))
 
         await asyncio.sleep(2)
 
@@ -125,6 +125,14 @@ class App:
 
         await bot_task
 
+    async def _run_discord(self, token: str) -> None:
+        """Run the Discord bot, reconnecting on network errors."""
+        while True:
+            try:
+                await self.bot.start(token, reconnect=True)
+            except Exception as exc:
+                log("ERROR", Tags.DISCORD, f"Discord connection error: {exc}")
+                await asyncio.sleep(10)
 
 def main() -> None:
     """Parse config and run the application."""
