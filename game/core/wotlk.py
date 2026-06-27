@@ -5,11 +5,11 @@ WotLK game packet handler.
 from __future__ import annotations
 
 import hashlib
-import logging
 import random
 import struct
 
 from common.chat import ChatEvents
+from utils.logger import Tags, log
 from common.types import Packet, PacketWriter, global_state
 from game.core.packets import GamePacketsWotLK
 from game.core.tbc import GamePacketHandlerTBC
@@ -20,10 +20,9 @@ from game.models import (
     NameQueryMessage,
 )
 
-logger = logging.getLogger(__name__)
-
-
 class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
+    """WotLK game packet handler."""
+
     def _parse_auth_challenge(self, msg: Packet) -> AuthChallengeMessage:
         account = global_state.config.wow.account
         msg.skip(4)
@@ -70,7 +69,7 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
             char_class = msg.read_byte()
             return NameQueryMessage(guid, name, char_class)
         else:
-            logger.error(f"RECV SMSG_NAME_QUERY - Name not known for guid {guid}")
+            log("ERROR", Tags.GAME, f"RECV SMSG_NAME_QUERY - Name not known for guid {guid}")
             return NameQueryMessage(guid, "UNKNOWN", 0xFF)
 
     def _parse_char_enum(self, msg: Packet) -> CharEnumMessage | None:
