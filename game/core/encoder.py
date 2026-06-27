@@ -5,18 +5,28 @@ Merged from GamePacketEncoder, GamePacketEncoderCataclysm, GamePacketEncoderMoP.
 
 from __future__ import annotations
 
-import logging
 import struct
 
 from common.types import global_state
 from game.core.packets import GamePackets, GamePacketsCataclysm, GamePacketsMoP
-
-logger = logging.getLogger(__name__)
+from utils.logger import Tags, log
 
 
 class GamePacketEncoder(GamePackets):
+    """Vanilla/TBC/WotLK packet encoder."""
+
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
+        """
+        Encode a packet with header for the Vanilla/TBC/WotLK protocol.
+
+        Args:
+            msg_id: Opcode of the packet.
+            payload: Raw packet payload bytes.
+
+        Returns:
+            Fully encoded packet including encrypted header.
+        """
         crypt = global_state.game_crypt
         unencrypted = msg_id == GamePacketEncoder.CMSG_AUTH_CHALLENGE
         header_size = 4 if unencrypted else 6
@@ -30,7 +40,7 @@ class GamePacketEncoder(GamePackets):
             header[4:6] = b"\x00\x00"
             header = bytearray(crypt.encrypt(list(header)))
 
-        logger.debug("SEND PACKET: %04X - %s", msg_id, payload.hex())
+        log("DEBUG", Tags.GAME, f"SEND PACKET: {msg_id:04X} - {payload.hex()}")
 
         result = bytearray(header)
         result.extend(payload)
@@ -38,8 +48,22 @@ class GamePacketEncoder(GamePackets):
 
 
 class GamePacketEncoderCataclysm(GamePacketEncoder, GamePacketsCataclysm):
+    """Cataclysm packet encoder with WOW_CONNECTION support."""
+
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
+        """
+        Encode a packet with header for the Cataclysm protocol.
+
+        Also handles the WOW_CONNECTION handshake packet.
+
+        Args:
+            msg_id: Opcode of the packet.
+            payload: Raw packet payload bytes.
+
+        Returns:
+            Fully encoded packet including encrypted header.
+        """
         crypt = global_state.game_crypt
         unencrypted = (msg_id == GamePacketEncoderCataclysm.CMSG_AUTH_CHALLENGE or
                        msg_id == GamePacketEncoderCataclysm.WOW_CONNECTION)
@@ -54,7 +78,7 @@ class GamePacketEncoderCataclysm(GamePacketEncoder, GamePacketsCataclysm):
             header[4:6] = b"\x00\x00"
             header = bytearray(crypt.encrypt(list(header)))
 
-        logger.debug("SEND PACKET: %04X - %s", msg_id, payload.hex())
+        log("DEBUG", Tags.GAME, f"SEND PACKET: {msg_id:04X} - {payload.hex()}")
 
         result = bytearray(header)
         result.extend(payload)
@@ -62,8 +86,22 @@ class GamePacketEncoderCataclysm(GamePacketEncoder, GamePacketsCataclysm):
 
 
 class GamePacketEncoderMoP(GamePacketEncoderCataclysm, GamePacketsMoP):
+    """MoP packet encoder with compact 4-byte header."""
+
     @staticmethod
     def encode(msg_id: int, payload: bytes) -> bytes:
+        """
+        Encode a packet with header for the Mists of Pandaria protocol.
+
+        Uses a compact 4-byte header with size and opcode packed together.
+
+        Args:
+            msg_id: Opcode of the packet.
+            payload: Raw packet payload bytes.
+
+        Returns:
+            Fully encoded packet including encrypted header.
+        """
         crypt = global_state.game_crypt
         unencrypted = (msg_id == GamePacketEncoderMoP.CMSG_AUTH_CHALLENGE or
                        msg_id == GamePacketEncoderMoP.WOW_CONNECTION)
@@ -80,7 +118,7 @@ class GamePacketEncoderMoP(GamePacketEncoderCataclysm, GamePacketsMoP):
             if crypt and crypt.is_init:
                 header = bytearray(crypt.encrypt(list(header)))
 
-        logger.debug("SEND PACKET: %04X - %s", msg_id, payload.hex())
+        log("DEBUG", Tags.GAME, f"SEND PACKET: {msg_id:04X} - {payload.hex()}")
 
         result = bytearray(header)
         result.extend(payload)
