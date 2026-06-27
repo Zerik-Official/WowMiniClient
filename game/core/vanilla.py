@@ -5,16 +5,15 @@ Vanilla game packet handler.
 from __future__ import annotations
 
 import hashlib
-import logging
 import random
 import struct
 import time
 from collections.abc import Callable
 from typing import Any
 
+from utils.logger import Tags, log
 from common.chat import ChatEvents
 from common.types import Packet, PacketWriter, WowExpansion, global_state
-from crypto.header import GameHeaderCrypt
 from game.core.command_handler import GameCommandHandler
 from game.core.packets import (
     AuthResponseCodes,
@@ -23,6 +22,7 @@ from game.core.packets import (
     GamePackets,
     GuildEvents,
     Races,
+    ServerMessageType,
 )
 from game.core.resources import GameResources
 from game.models import (
@@ -34,8 +34,6 @@ from game.models import (
     NameQueryMessage,
     Player,
 )
-
-logger = logging.getLogger(__name__)
 
 ADDON_INFO_VANILLA = bytes([
     0x56, 0x01, 0x00, 0x00, 0x78, 0x9C, 0x75, 0xCC, 0xBD, 0x0E, 0xC2, 0x30, 0x0C, 0x04, 0xE0, 0xF2,
@@ -141,6 +139,8 @@ _ADDON_INFO: dict[WowExpansion, bytes] = {
 
 
 class GamePacketHandler(GamePackets, GameCommandHandler):
+    """Vanilla game packet handler. Base class for all expansion handlers."""
+
     def __init__(self, realm_id: int, realm_name: str,
                  session_key: bytes,
                  game_event_callback: Any,
@@ -167,6 +167,15 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         self._ping_id = 0
 
     def handle_packet(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Dispatch an incoming packet to its type-specific handler.
+
+        Args:
+            msg: Packet with opcode and raw payload data.
+
+        Returns:
+            List of (opcode, payload) tuples to be sent back to the server.
+        """
         out: list[tuple[int, bytes]] = []
         mid = msg.id
 
@@ -204,22 +213,57 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         return out
 
     def on_connected(self) -> None:
-        logger.info("Connected to game server.")
+        """Log a successful connection to the game server."""
+        log("INFO", Tags.GAME, "Connected to game server.")
 
     def disconnect(self) -> None:
+        """
+        Mark the session as disconnected and notify the event callback.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.in_world = False
         self.game_event_callback.disconnected()
 
     def send_message_to_wow(self, tp: int, message: str,
                             target: str | None = None) -> None:
+        """
+        Send a chat message to the WoW game server.
+
+        Args:
+            tp: Chat message type constant (e.g. CHAT_MSG_GUILD).
+            message: Text content of the message.
+            target: Optional channel or target name for the message.
+        """
         payload = self._build_chat_message(tp, message.encode("utf-8"),
                                            target.encode("utf-8") if target else None)
         self.send(self.CMSG_MESSAGECHAT, payload)
 
     def send_notification(self, message: str) -> None:
+        """
+        Send a guild notification message to WoW.
+
+        Args:
+            message: Notification text to send to guild chat.
+        """
         self.send_message_to_wow(ChatEvents.CHAT_MSG_GUILD, message)
 
     def handle_who(self, arguments: str | None) -> str | None:
+        """
+        Process a WHO query and return the result string.
+
+        Args:
+            arguments: Optional search filter text. If None, returns
+                a list of online guild members.
+
+        Returns:
+            Formatted WHO result string, or None if the query was
+            sent to the server and no inline result is available.
+        """
         if arguments:
             payload = self._build_who_message(arguments)
             self.send(self.CMSG_WHO, payload)
@@ -227,19 +271,36 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         return self._build_guildies_online()
 
     def handle_gmotd(self) -> str | None:
+        """
+        Return the guild Message of the Day.
+
+        Returns:
+            Guild MOTD string, or None if not yet received.
+        """
         return self.guild_motd
 
     def send_name_query(self, guid: int) -> None:
+        """
+        Request the name for a character GUID from the server.
+
+        Args:
+            guid: 64-bit character GUID to look up.
+        """
         pw = PacketWriter()
         pw.write_long_le(guid)
         self.send(self.CMSG_NAME_QUERY, pw.build())
 
     def send_logout(self) -> bytes | None:
+        """
+        Build a CMSG_LOGOUT_REQUEST packet.
+
+        Returns:
+            Encoded logout request packet bytes.
+        """
         return struct.pack("<H", self.CMSG_LOGOUT_REQUEST)
 
     def _handle_auth_challenge(self, msg: Packet, out: list[tuple[int, bytes]]) -> None:
         auth_msg = self._parse_auth_challenge(msg)
-        global_state.game_crypt = GameHeaderCrypt()
         global_state.game_crypt.init(auth_msg.session_key)
         out.append((self.CMSG_AUTH_CHALLENGE, auth_msg.response))
 
@@ -270,15 +331,15 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
     def _handle_auth_response(self, msg: Packet, out: list[tuple[int, bytes]]) -> None:
         code = self._parse_auth_response(msg)
         if code == AuthResponseCodes.AUTH_OK:
-            logger.info("Successfully logged in!")
+            log("INFO", Tags.GAME, "Successfully logged in!")
             self._send_char_enum(out)
         elif code == AuthResponseCodes.AUTH_WAIT_QUEUE:
             if msg.remaining() >= 14:
                 msg.skip(10)
             position = msg.read_int_le()
-            logger.info(f"Queue enabled. Position: {position}")
+            log("INFO", Tags.GAME, f"Queue enabled. Position: {position}")
         else:
-            logger.error(AuthResponseCodes.get_message(code))
+            log("ERROR", Tags.GAME, AuthResponseCodes.get_message(code))
             self.game_event_callback.error()
 
     def _parse_auth_response(self, msg: Packet) -> int:
@@ -293,13 +354,13 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             if self.in_world:
                 return
             else:
-                logger.info("Received character enum more than once. Trying again...")
+                log("INFO", Tags.GAME, "Received character enum more than once. Trying again...")
         self.received_char_enum = True
         character = self._parse_char_enum(msg)
         if character is None:
-            logger.error(f"Character {global_state.config.wow.character} not found!")
+            log("ERROR", Tags.GAME, f"Character {global_state.config.wow.character} not found!")
         else:
-            logger.info(f"Logging in with character {character.name}")
+            log("INFO", Tags.GAME, f"Logging in with character {character.name}")
             self.self_character_id = character.guid
             self.language_id = Races.get_language(character.race)
             self.guild_guid = character.guild_guid
@@ -342,7 +403,7 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
     def _handle_login_verify_world(self, out: list[tuple[int, bytes]]) -> None:
         if self.in_world:
             return
-        logger.info("Successfully joined the world!")
+        log("INFO", Tags.GAME, "Successfully joined the world!")
         self.in_world = True
         self.game_event_callback.connected()
         self._run_keep_alive(out)
@@ -374,7 +435,7 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             if channel_name is None:
                 continue
             channel_id = channel_cfg.wow.id or 0
-            logger.info(f"Joining channel {channel_name}")
+            log("INFO", Tags.GAME, f"Joining channel {channel_name}")
             payload = self._write_join_channel(channel_id, channel_name.encode("utf-8"))
             out.append((self.CMSG_JOIN_CHANNEL, payload))
 
@@ -443,12 +504,12 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
 
         msg = msg.replace("%c", self.guild_info.name if self.guild_info else "Unknown")
 
-        logger.info(f"Guild event: {msg}")
+        log("INFO", Tags.GAME, f"Guild event: {msg}")
         self.game_event_callback.chat_message(None, msg, ChatEvents.CHAT_MSG_SYSTEM, None)
 
     def _handle_guild_roster(self, msg: Packet) -> None:
         self.guild_roster = self._parse_guild_roster(msg)
-        logger.debug(f"Guild roster received with {len(self.guild_roster)} members.")
+        log("DEBUG", Tags.GAME, f"Guild roster received with {len(self.guild_roster)} members.")
         self.game_event_callback.guild_roster_updated()
 
     def _parse_guild_roster(self, msg: Packet) -> dict[int, GuildMember]:
@@ -474,7 +535,7 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         return roster
 
     def _handle_message_chat(self, msg: Packet) -> None:
-        logger.debug(f"RECV CHAT: {bytes(msg.data[msg._pos:]).hex()}")
+        log("DEBUG", Tags.GAME, f"RECV CHAT: {bytes(msg.data[msg._pos:]).hex()}")
         chat_msg = self._parse_chat_message(msg)
         if chat_msg is not None:
             self._send_chat_message(chat_msg)
@@ -556,12 +617,12 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         err_msg = messages.get(cid)
         if err_msg:
             if cid == ChatNotify.CHAT_YOU_JOINED_NOTICE:
-                logger.info(err_msg)
+                log("INFO", Tags.GAME, err_msg)
             else:
-                logger.error(err_msg)
+                log("ERROR", Tags.GAME, err_msg)
 
     def _handle_notification(self, msg: Packet) -> None:
-        logger.info(f"Notification: {msg.read_string()}")
+        log("INFO", Tags.GAME, f"Notification: {msg.read_string()}")
 
     def _handle_who(self, msg: Packet) -> None:
         pass
@@ -570,10 +631,10 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         tp = msg.read_int_le()
         txt = msg.read_string()
         messages = {
-            0x01: f"Shutdown in {txt}",
-            0x02: f"Restart in {txt}",
-            0x04: "Shutdown cancelled.",
-            0x05: "Restart cancelled.",
+            ServerMessageType.SERVER_MSG_SHUTDOWN_TIME: f"Shutdown in {txt}",
+            ServerMessageType.SERVER_MSG_RESTART_TIME: f"Restart in {txt}",
+            ServerMessageType.SERVER_MSG_SHUTDOWN_CANCELLED: "Shutdown cancelled.",
+            ServerMessageType.SERVER_MSG_RESTART_CANCELLED: "Restart cancelled.",
         }
         message = messages.get(tp, txt)
         self.game_event_callback.chat_message(None, message,
@@ -585,7 +646,7 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
 
     def _handle_warden_data(self, msg: Packet, out: list[tuple[int, bytes]]) -> None:
         if global_state.config.wow.platform.value == "Windows":
-            logger.error("WARDEN ON WINDOWS IS NOT SUPPORTED!")
+            log("ERROR", Tags.GAME, "WARDEN ON WINDOWS IS NOT SUPPORTED!")
             return
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
@@ -633,6 +694,12 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         return f"Currently {count} {guildie_word} online:\n" + ", ".join(parts)
 
     def ping(self) -> bytes | None:
+        """
+        Build a CMSG_PING response with randomised latency.
+
+        Returns:
+            Encoded ping response packet bytes.
+        """
         latency = random.randint(90, 139)
         pw = PacketWriter()
         pw.write_int_le(self._ping_id)
