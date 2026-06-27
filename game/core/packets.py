@@ -1,7 +1,12 @@
+"""
+Game protocol opcodes per expansion and supporting enums.
+"""
+
 from __future__ import annotations
 
 
 class GamePackets:
+    """Vanilla game protocol opcodes."""
     CMSG_CHAR_ENUM = 0x37
     SMSG_CHAR_ENUM = 0x3B
     CMSG_PLAYER_LOGIN = 0x3D
@@ -38,17 +43,20 @@ class GamePackets:
 
 
 class GamePacketsTBC(GamePackets):
+    """TBC-specific opcode overrides."""
     SMSG_GM_MESSAGECHAT = 0x03B2
     SMSG_MOTD = 0x033D
     CMSG_KEEP_ALIVE = 0x0406
 
 
 class GamePacketsWotLK(GamePacketsTBC):
+    """WotLK-specific opcode overrides."""
     SMSG_GM_MESSAGECHAT = 0x03B3
     CMSG_KEEP_ALIVE = 0x0407
 
 
 class GamePacketsCataclysm(GamePacketsWotLK):
+    """Cataclysm-specific opcodes and CMSG_MESSAGECHAT subtypes."""
     CMSG_CHAR_ENUM = 0x0502
     SMSG_CHAR_ENUM = 0x10B0
     CMSG_PLAYER_LOGIN = 0x05B1
@@ -104,6 +112,7 @@ class GamePacketsCataclysm(GamePacketsWotLK):
 
 
 class GamePacketsMoP(GamePacketsCataclysm):
+    """MoP-specific opcode overrides including guild events."""
     CMSG_MESSAGECHAT_AFK = 0x0EAB
     CMSG_MESSAGECHAT_CHANNEL = 0x00BB
     CMSG_MESSAGECHAT_DND = 0x002E
@@ -160,6 +169,7 @@ class GamePacketsMoP(GamePacketsCataclysm):
 
 
 class Races:
+    """Playable race constants."""
     RACE_HUMAN = 0x01
     RACE_ORC = 0x02
     RACE_DWARF = 0x03
@@ -178,6 +188,15 @@ class Races:
 
     @staticmethod
     def get_language(race: int) -> int:
+        """
+        Return the default language ID for a given race.
+
+        Args:
+            race: Race constant from Races.
+
+        Returns:
+            Language ID (0x01 for Horde, 0x07 for Alliance, 0x2A for Pandaren).
+        """
         horde_races = {
             Races.RACE_ORC, Races.RACE_UNDEAD, Races.RACE_TAUREN,
             Races.RACE_TROLL, Races.RACE_BLOODELF, Races.RACE_GOBLIN,
@@ -191,6 +210,15 @@ class Races:
 
     @staticmethod
     def value_of(race: int) -> str:
+        """
+        Return the human-readable name for a race ID.
+
+        Args:
+            race: Race constant from Races.
+
+        Returns:
+            Race name string (e.g. "Human", "Orc"), or "Unknown".
+        """
         mapping = {
             Races.RACE_HUMAN: "Human",
             Races.RACE_ORC: "Orc",
@@ -212,6 +240,7 @@ class Races:
 
 
 class Classes:
+    """Playable class constants."""
     CLASS_WARRIOR = 0x01
     CLASS_PALADIN = 0x02
     CLASS_HUNTER = 0x03
@@ -226,6 +255,15 @@ class Classes:
 
     @staticmethod
     def value_of(char_class: int) -> str:
+        """
+        Return the human-readable name for a class ID.
+
+        Args:
+            char_class: Class constant from Classes.
+
+        Returns:
+            Class name string (e.g. "Warrior", "Mage"), or "Unknown".
+        """
         mapping = {
             Classes.CLASS_WARRIOR: "Warrior",
             Classes.CLASS_PALADIN: "Paladin",
@@ -243,12 +281,22 @@ class Classes:
 
 
 class Genders:
+    """Gender constants."""
     GENDER_MALE = 0
     GENDER_FEMALE = 1
     GENDER_NONE = 2
 
     @staticmethod
     def value_of(gender: int) -> str:
+        """
+        Return the human-readable name for a gender ID.
+
+        Args:
+            gender: Gender constant from Genders.
+
+        Returns:
+            "Male", "Female", or "Unknown".
+        """
         mapping = {
             Genders.GENDER_MALE: "Male",
             Genders.GENDER_FEMALE: "Female",
@@ -257,6 +305,7 @@ class Genders:
 
 
 class AuthResponseCodes:
+    """Authentication result code constants."""
     AUTH_OK = 0x0C
     AUTH_FAILED = 0x0D
     AUTH_REJECT = 0x0E
@@ -288,6 +337,15 @@ class AuthResponseCodes:
 
     @staticmethod
     def value_of(auth_result: int) -> str:
+        """
+        Return the constant name for an auth result code.
+
+        Args:
+            auth_result: Numeric auth result from the server.
+
+        Returns:
+            Constant name (e.g. "AUTH_OK"), or hex string if unknown.
+        """
         for name in dir(AuthResponseCodes):
             if (
                 isinstance(getattr(AuthResponseCodes, name), int)
@@ -298,6 +356,15 @@ class AuthResponseCodes:
 
     @staticmethod
     def get_message(auth_result: int) -> str:
+        """
+        Return a user-friendly message for an auth result code.
+
+        Args:
+            auth_result: Numeric auth result from the server.
+
+        Returns:
+            Human-readable message describing the result.
+        """
         mapping = {
             AuthResponseCodes.AUTH_OK: "Success!",
             AuthResponseCodes.AUTH_UNKNOWN_ACCOUNT: "Invalid username!",
@@ -319,6 +386,7 @@ class AuthResponseCodes:
 
 
 class ChatNotify:
+    """SMSG_CHANNEL_NOTIFY notification type constants."""
     CHAT_JOINED_NOTICE = 0x00
     CHAT_LEFT_NOTICE = 0x01
     CHAT_YOU_JOINED_NOTICE = 0x02
@@ -358,6 +426,7 @@ class ChatNotify:
 
 
 class ServerMessageType:
+    """SMSG_SERVER_MESSAGE sub-type constants."""
     SERVER_MSG_SHUTDOWN_TIME = 0x01
     SERVER_MSG_RESTART_TIME = 0x02
     SERVER_MSG_CUSTOM = 0x03
@@ -366,6 +435,7 @@ class ServerMessageType:
 
 
 class ChatChannelIds:
+    """Built-in channel ID constants."""
     GENERAL = 0x01
     TRADE = 0x02
     LOCAL_DEFENSE = 0x16
@@ -375,6 +445,15 @@ class ChatChannelIds:
 
     @staticmethod
     def get_id(channel: str) -> int:
+        """
+        Return the numeric ID for a built-in channel name.
+
+        Args:
+            channel: Channel name (e.g. "general", "trade").
+
+        Returns:
+            Channel ID constant, or 0x00 for custom channels.
+        """
         name = channel.split(" ", 1)[0].lower()
         mapping = {
             "general": ChatChannelIds.GENERAL,
@@ -388,6 +467,8 @@ class ChatChannelIds:
 
 
 class GuildEvents:
+    """Guild event type constants, with different values pre- and post-Cataclysm."""
+
     def __init__(self, is_cata: bool = False) -> None:
         if is_cata:
             self.GE_PROMOTED = 0x01
