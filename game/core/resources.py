@@ -11,6 +11,8 @@ from common.types import WowExpansion
 
 
 class GameResources:
+    """Lazy-loaded CSV resource maps for area and achievement names."""
+
     AREA: ClassVar[dict[int, str]] = {}
     ACHIEVEMENT: ClassVar[dict[int, str]] = {}
 
@@ -23,6 +25,16 @@ class GameResources:
 
     @classmethod
     def init_for_expansion(cls, expansion: WowExpansion) -> None:
+        """
+        Load area and achievement CSV data for the given expansion.
+
+        Pre-Cataclysm expansions use pre-Cata area maps; Cataclysm and
+        later use post-Cata area maps. Achievements are the same across
+        all expansions.
+
+        Args:
+            expansion: Target WoW expansion to load resources for.
+        """
         if expansion in (WowExpansion.VANILLA, WowExpansion.TBC, WowExpansion.WOTLK):
             cls.AREA = cls._read_csv("pre_cata_areas.csv")
         else:
