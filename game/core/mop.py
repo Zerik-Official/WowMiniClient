@@ -76,6 +76,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         self.send(self.CMSG_NAME_QUERY, pw.build())
 
     def _parse_name_query(self, msg: Packet) -> NameQueryMessage:
+        """
+        Parse SMSG_NAME_QUERY_RESPONSE with MoP bit-packed layout.
+
+        Args:
+            msg: Incoming packet positioned at the name query response.
+
+        Returns:
+            NameQueryMessage with guid, name, and class.
+        """
         guid_mask = [0] * 8
         guid2_mask = [0] * 8
         guid3_mask = [0] * 8
@@ -118,16 +127,40 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return NameQueryMessage(guid, name, char_class)
 
     def _parse_invalidate_player(self, msg: Packet) -> int:
+        """
+        Parse SMSG_INVALIDATE_PLAYER to extract the GUID.
+
+        Args:
+            msg: Incoming packet.
+
+        Returns:
+            64-bit GUID of the player to invalidate.
+        """
         guid_mask = [0] * 8
         msg.read_bit_seq(guid_mask, 6, 3, 1, 2, 7, 5, 0, 4)
         msg.read_xor_byte_seq(guid_mask, 7, 1, 2, 3, 6, 0, 4, 5)
         return struct.unpack("<Q", bytes(guid_mask))[0]
 
     def _handle_invalidate_player(self, msg: Packet) -> None:
+        """
+        Remove a player from the local roster on SMSG_INVALIDATE_PLAYER.
+
+        Args:
+            msg: Incoming packet.
+        """
         guid = self._parse_invalidate_player(msg)
         self.player_roster.pop(guid, None)
 
     def _build_who_message(self, name: str) -> bytes:
+        """
+        Build a CMSG_WHO packet for MoP (bit-packed).
+
+        Args:
+            name: Player name to search for.
+
+        Returns:
+            Serialised packet payload.
+        """
         bw = PacketBitWriter()
         bw.write_int_le(0xFFFFFFFF)
         bw.write_int_le(0xFFFFFFFF)
@@ -146,8 +179,19 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         bw.flush()
         bw.write_bytes(name.encode("utf-8"))
         return bw.build()
-
     def _parse_auth_challenge(self, msg: Packet) -> AuthChallengeMessage:
+        """
+        Parse SMSG_AUTH_CHALLENGE and build CMSG_AUTH_SESSION.
+
+        Computes the SHA1 proof digest using the server seed, client seed,
+        account name, and session key.
+
+        Args:
+            msg: Incoming auth challenge packet.
+
+        Returns:
+            AuthChallengeMessage with session_key and response payload.
+        """
         account = global_state.config.wow.account
         msg.skip(35)
         server_seed = msg.read_int()
@@ -204,11 +248,29 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return AuthChallengeMessage(self.session_key, pw.build())
 
     def _parse_auth_response(self, msg: Packet) -> int:
+        """
+        Parse SMSG_AUTH_RESPONSE.
+
+        Args:
+            msg: Incoming auth response packet.
+
+        Returns:
+            AuthResponseCodes constant (AUTH_OK or AUTH_FAILED).
+        """
         if msg.read_bit() == 1:
             return AuthResponseCodes.AUTH_OK
         return AuthResponseCodes.AUTH_FAILED
 
     def _parse_char_enum(self, msg: Packet) -> CharEnumMessage | None:
+        """
+        Parse SMSG_CHAR_ENUM and find the configured character.
+
+        Args:
+            msg: Incoming character list packet.
+
+        Returns:
+            CharEnumMessage for the matching character, or None if not found.
+        """
         character_bytes = global_state.config.wow.character.lower().encode("utf-8")
         msg.read_bits(21)
         characters_num = msg.read_bits(16)
@@ -273,6 +335,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return None
 
     def _write_player_login(self) -> bytes:
+        """
+        Build CMSG_PLAYER_LOGIN for MoP (bit-packed GUID).
+
+        Returns:
+            Serialised packet payload.
+        """
         bw = PacketBitWriter()
         guid_bytes = list(struct.pack("<Q", self.self_character_id))
         bw.write_int_le(0x43480000)
@@ -282,6 +350,16 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
 
     def _write_join_channel(self, channel_id: int,
                             channel_name_bytes: bytes) -> bytes:
+        """B
+        uild CMSG_JOIN_CHANNEL for MoP (bit-packed).
+
+        Args:
+            channel_id: Numeric channel ID.
+            channel_name_bytes: Channel name as UTF-8 bytes.
+
+        Returns:
+            Serialised packet payload.
+        """
         pw = PacketBitWriter()
         pw.write_int_le(channel_id)
         pw.write_bit(0)
@@ -293,6 +371,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return pw.build()
 
     def _query_guild_name(self, out: list[tuple[int, bytes]]) -> None:
+        """
+        Build a CMSG_GUILD_QUERY packet and append it to the output list.
+
+        Args:
+            out: Accumulator list for outgoing packets.
+        """
         player_bytes = list(struct.pack("<Q", self.self_character_id))
         guild_bytes = list(struct.pack("<Q", self.guild_guid))
         pw = PacketBitWriter()
@@ -317,6 +401,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         out.append((self.CMSG_GUILD_QUERY, pw.build()))
 
     def _parse_guild_query(self, msg: Packet) -> GuildInfo:
+        """
+        Parse SMSG_GUILD_QUERY_RESPONSE for MoP.
+
+        Args:
+            msg: Incoming guild query response.
+
+        Returns:
+            GuildInfo with guild name and rank mappings.
+        """
         guild_guid_arr = [0] * 8
         msg.read_bit_seq(guild_guid_arr, 5)
         msg.read_bit()
@@ -342,6 +435,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return GuildInfo(name, ranks)
 
     def _parse_chat_message(self, msg: Packet) -> ChatMessage | None:
+        """
+        Parse SMSG_MESSAGECHAT for MoP bit-packed layout.
+
+        Args:
+            msg: Incoming chat message packet.
+
+        Returns:
+            ChatMessage or None if the message should be filtered.
+        """
         has_sender_name = msg.read_bit() == 0
         msg.read_bit()
         if has_sender_name:
@@ -420,6 +522,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return ChatMessage(sender_guid, tp, txt, channel_name)
 
     def _parse_server_motd(self, msg: Packet) -> list[ChatMessage]:
+        """
+        Parse SMSG_MOTD for MoP.
+
+        Args:
+            msg: Incoming MOTD packet.
+
+        Returns:
+            List of ChatMessage (one per MOTD line).
+        """
         line_count = msg.read_bits(4)
         message_lengths = [msg.read_bits(7) for _ in range(line_count)]
         result = []
@@ -429,6 +540,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return result
 
     def _parse_guild_roster(self, msg: Packet) -> dict[int, GuildMember]:
+        """
+        Parse SMSG_GUILD_ROSTER for MoP.
+
+        Args:
+            msg: Incoming guild roster packet.
+
+        Returns:
+            Dict mapping GUID to GuildMember.
+        """
         count = msg.read_bits(17)
         motd_length = msg.read_bits(10)
 
@@ -486,11 +606,31 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return roster
 
     def _parse_notification(self, msg: Packet) -> str:
+        """
+        Parse SMSG_GUILD_EVENT_NOTIFICATION for MoP.
+
+        Args:
+            msg: Incoming notification packet.
+
+        Returns:
+            Notification text.
+        """
         length = msg.read_bits(12)
         return msg.slice(length).decode("utf-8", errors="replace")
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
                             target_bytes: bytes | None) -> bytes:
+        """
+        Build a CMSG_MESSAGECHAT packet for MoP.
+
+        Args:
+            tp: Chat type (e.g. CHAT_MSG_WHISPER).
+            msg_bytes: Message content as bytes.
+            target_bytes: Target name as bytes (whisper target or channel name).
+
+        Returns:
+            Serialised packet payload.
+        """
         pw = PacketBitWriter()
         pw.write_int_le(self.language_id)
         if target_bytes is not None and tp == ChatEvents.CHAT_MSG_CHANNEL:
@@ -505,6 +645,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return pw.build()
 
     def _handle_mop_guild_motd(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Handle SMSG_GUILD_MOTD for MoP.
+
+        Args:
+            msg: Incoming guild MOTD packet.
+
+        Returns:
+            Empty list (no outgoing packets).
+        """
         length = msg.read_bits(10)
         motd = msg.slice(length).decode("utf-8", errors="replace")
         self.guild_motd = motd
@@ -512,6 +661,15 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return []
 
     def _handle_mop_guild_ranks_update(self, msg: Packet) -> None:
+        """
+        Handle SMSG_GUILD_RANKS_UPDATE for MoP.
+
+        Parses the promoted/demoted player and target, then fires the
+        appropriate guild event.
+
+        Args:
+            msg: Incoming guild ranks update packet.
+        """
         guid_arr = [0] * 8
         target_arr = [0] * 8
         msg.read_bit_seq(target_arr, 5, 6)
@@ -559,6 +717,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         self._handle_guild_event_common(event, [name.name, target_name.name, rank_name])
 
     def _handle_mop_guild_invite_accept(self, msg: Packet) -> None:
+        """
+        Handle SMSG_GUILD_INVITE_ACCEPT for MoP.
+
+        Args:
+            msg: Incoming guild invite accept packet.
+        """
         guid_arr = [0] * 8
         msg.read_bit_seq(guid_arr, 6, 1, 3)
         name_length = msg.read_bits(6)
@@ -571,6 +735,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         self._handle_guild_event_common(GuildEvents(True).GE_JOINED, [name])
 
     def _handle_mop_guild_member_logged(self, msg: Packet) -> None:
+        """
+        Handle SMSG_GUILD_MEMBER_LOGGED for MoP.
+
+        Args:
+            msg: Incoming guild member logged packet.
+        """
         guid_arr = [0] * 8
         msg.read_bit_seq(guid_arr, 0, 6)
         msg.read_bit()
@@ -589,6 +759,12 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         self._handle_guild_event_common(event, [name])
 
     def _handle_mop_guild_leave(self, msg: Packet) -> None:
+        """
+        Handle SMSG_GUILD_LEAVE for MoP.
+
+        Args:
+            msg: Incoming guild leave packet.
+        """
         guid_arr = [0] * 8
         msg.read_bit_seq(guid_arr, 2)
         name_length = msg.read_bits(6)
