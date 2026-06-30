@@ -17,10 +17,11 @@ from common.formatters import _GUILD_EVENT_ARGS, fmt
 from common.types import WowChatConfig, global_state
 from game.core.command_handler import GameCommandHandler
 from game.core.resources import GameResources
-from modules.bot.commands import _DOT_COMMAND_RE, handle_dot_command
+from modules.bot.commands import  handle_dot_command
 from utils.logger import Tags, log
 from utils.markup import convert_wow_markup, replace_raid_icons
 
+_DOT_COMMAND_RE = re.compile(r"^\.(\w+)\s*(.*)")
 
 class _RateLimiter:
     """Simple rate limiter that ensures a minimum interval between actions."""
@@ -58,6 +59,7 @@ class DiscordBot(discord.Client):
         self._command_handler: GameCommandHandler | None = None
         self._connected_channel: Any = None
         self._rate_limiter = _RateLimiter()
+        self._pending_whispers: dict[str, tuple[str, float]] = {}
 
     def set_command_handler(self, handler: GameCommandHandler) -> None:
         """
@@ -228,6 +230,30 @@ class DiscordBot(discord.Client):
                 self._send_to_channel(discord_channel_name, formatted)
             )
 
+    def register_pending_whisper(self, target: str, channel_name: str) -> None:
+        self._pending_whispers[target.lower()] = (channel_name, time.monotonic())
+
+    def chat_player_notfound(self, target: str) -> None:
+        now = time.monotonic()
+        key = target.lower()
+        entry = self._pending_whispers.pop(key, None)
+        stale = [k for k, (_, ts) in self._pending_whispers.items() if now - ts > 30]
+        for k in stale:
+            self._pending_whispers.pop(k, None)
+        channel_name = entry[0] if entry else None
+        if not channel_name:
+            key = (ChatEvents.CHAT_MSG_WHISPER, None)
+            targets = global_state.wow_to_discord.get(key)
+            if targets:
+                channel_name = targets[0][0]
+        if channel_name:
+            asyncio.create_task(
+                self._send_to_channel(
+                    channel_name,
+                    f":warning: Player **{target}** is not online or does not exist.",
+                )
+            )
+
     def _is_filtered(self, message: str, filters: Any) -> bool:
         """
         Check if a message matches any configured filter pattern.
@@ -323,9 +349,11 @@ class DiscordBot(discord.Client):
         if dc.enable_dot_commands:
             cmd_match = _DOT_COMMAND_RE.match(message.content)
             if cmd_match:
+                ch_name = message.channel.name
                 await handle_dot_command(
                     cmd_match, message.channel, message.author.display_name,
                     self._command_handler, self._echo_own_message,
+                    lambda target, _: self.register_pending_whisper(target, ch_name),
                 )
                 return
 

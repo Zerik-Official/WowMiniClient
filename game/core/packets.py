@@ -41,6 +41,8 @@ class GamePackets:
     SMSG_TIME_SYNC_REQ: int = 0x0390
     CMSG_TIME_SYNC_RESP: int = 0x0391
 
+    SMSG_CHAT_PLAYER_NOTFOUND: int = 0x02A9
+
 
 class GamePacketsTBC(GamePackets):
     """TBC-specific opcode overrides."""
@@ -93,6 +95,8 @@ class GamePacketsCataclysm(GamePacketsWotLK):
     CMSG_TIME_SYNC_RESP: int = 0x3B0C
 
     SMSG_MOTD: int = 0x0A35
+
+    SMSG_CHAT_PLAYER_NOTFOUND: int = 0x2526
 
     WOW_CONNECTION: int = 0x4F57
 
@@ -166,6 +170,8 @@ class GamePacketsMoP(GamePacketsCataclysm):
     SMSG_GUILD_LEAVE: int = 0x0BF8
 
     SMSG_COMPRESSED_DATA: int = 0x1568
+
+    SMSG_CHAT_PLAYER_NOTFOUND: int = 0x1082
 
 
 class Races:

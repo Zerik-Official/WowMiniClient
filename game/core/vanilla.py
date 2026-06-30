@@ -119,6 +119,8 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             self._handle_invalidate_player(msg)
         elif mid == self.SMSG_WARDEN_DATA:
             self._handle_warden_data(msg, out)
+        elif mid == getattr(self, 'SMSG_CHAT_PLAYER_NOTFOUND', -1):
+            self._handle_player_notfound(msg)
 
         return out
 
@@ -790,6 +792,18 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         """
         guid = msg.read_long_le()
         self.player_roster.pop(guid, None)
+
+    def _handle_player_notfound(self, msg: Packet) -> None:
+        """
+        Handle SMSG_CHAT_PLAYER_NOTFOUND (target player offline / does not exist).
+
+        Forwards the target name to the Discord bot for error routing.
+
+        Args:
+            msg: Incoming packet containing the player name as a null-terminated string.
+        """
+        target = msg.read_string()
+        self.game_event_callback.chat_player_notfound(target)
 
     def _handle_warden_data(self, msg: Packet, out: list[tuple[int, bytes]]) -> None:
         """

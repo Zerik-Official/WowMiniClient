@@ -11,15 +11,13 @@ from typing import Any
 from common.chat import ChatEvents
 from game.core.command_handler import GameCommandHandler
 
-_DOT_COMMAND_RE = re.compile(r"^\.(\w+)\s*(.*)")
-
-
 async def handle_dot_command(
     match: re.Match[str],
     channel: Any,
     author_name: str,
     handler: GameCommandHandler | None,
     echo_callback: Callable[[str, int, str | None], None] | None = None,
+    pending_callback: Callable[[str, str], None] | None = None,
 ) -> None:
     """
     Execute a dot command by dispatching to the WoW command handler.
@@ -33,6 +31,7 @@ async def handle_dot_command(
         author_name: Display name of the user who issued the command.
         handler: Game command handler for WoW interaction, or None if not connected.
         echo_callback: Optional callback to echo outgoing messages back to Discord.
+        pending_callback: Optional callback to register pending whisper for error routing.
     """
     if handler is None:
         return
@@ -54,6 +53,8 @@ async def handle_dot_command(
         )
         if echo_callback:
             echo_callback(text, ChatEvents.CHAT_MSG_WHISPER, target)
+        if pending_callback:
+            pending_callback(target, channel.name if hasattr(channel, 'name') else "whispers")
         return
     else:
         await channel.send(
