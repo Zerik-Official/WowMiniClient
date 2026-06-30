@@ -21,6 +21,12 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
     """TBC game packet handler extending the Vanilla base."""
 
     def _run_keep_alive(self, out: list[tuple[int, bytes]]) -> None:
+        """
+        Send a CMSG_KEEP_ALIVE to prevent server timeout.
+
+        Args:
+            out: Accumulator list for outgoing packets.
+        """
         out.append((self.CMSG_KEEP_ALIVE, b""))
 
     def handle_packet(self, msg: Packet) -> list[tuple[int, bytes]]:
@@ -47,6 +53,15 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
         return super().handle_packet(msg)
 
     def _handle_message_chat_inner(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Parse and forward a SMSG_GM_MESSAGECHAT (used for GM detection).
+
+        Args:
+            msg: Incoming chat message packet.
+
+        Returns:
+            Empty list (no outgoing packets).
+        """
         log("DEBUG", Tags.GAME, f"RECV CHAT: {bytes(msg.data[msg._pos:]).hex()}")
         chat_msg = self._parse_chat_message(msg)
         if chat_msg is not None:
@@ -54,6 +69,15 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
         return []
 
     def _handle_time_sync_req(self, msg: Packet) -> list[tuple[int, bytes]]:
+        """
+        Respond to CMSG_TIME_SYNC_RESP with current uptime.
+
+        Args:
+            msg: Incoming time sync request.
+
+        Returns:
+            List with a single CMSG_TIME_SYNC_RESP packet.
+        """
         counter = msg.read_int_le()
         uptime = int((time.time() * 1000) - self.connect_time)
         pw = PacketWriter()
@@ -62,6 +86,14 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
         return [(self.CMSG_TIME_SYNC_RESP, pw.build())]
 
     def _parse_server_motd(self, msg: Packet) -> list[ChatMessage]:
+        """Parse SMSG_MOTD for TBC (integer line count, null-terminated strings).
+
+        Args:
+            msg: Incoming MOTD packet.
+
+        Returns:
+            List of ChatMessage (one per MOTD line).
+        """
         line_count = msg.read_int_le()
         result = []
         for _ in range(line_count):
@@ -80,6 +112,16 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
 
     def _write_join_channel(self, channel_id: int,
                             channel_name_bytes: bytes) -> bytes:
+        """
+        Build CMSG_JOIN_CHANNEL for TBC (flat binary layout).
+
+        Args:
+            channel_id: Numeric channel ID.
+            channel_name_bytes: Channel name as UTF-8 bytes.
+
+        Returns:
+            Serialised packet payload.
+        """
         pw = PacketWriter()
         pw.write_int_le(channel_id)
         pw.write_byte(0)
