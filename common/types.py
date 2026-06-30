@@ -9,11 +9,11 @@ from typing import Any, Final
 class WowExpansion(StrEnum):
     """Supported World of Warcraft expansions."""
 
-    VANILLA: Final[str] = "1.12.1"
-    TBC: Final[str] = "2.4.3"
-    WOTLK: Final[str] = "3.3.5"
-    CATACLYSM: Final[str] = "4.3.4"
-    MOP: Final[str] = "5.4.8"
+    VANILLA: str = "1.12.1"
+    TBC: str = "2.4.3"
+    WOTLK: str = "3.3.5"
+    CATACLYSM: str = "4.3.4"
+    MOP: str = "5.4.8"
 
     @staticmethod
     def from_version(version: str) -> WowExpansion:
@@ -142,11 +142,14 @@ class DiscordConfig:
     """Discord bot configuration."""
 
     token: str
+    bot_system_channel: str | None = None
     enable_dot_commands: bool = True
     dot_commands_whitelist: set[str] = field(default_factory=set)
     enable_commands_channels: set[str] = field(default_factory=set)
     enable_tag_failed_notifications: bool = True
     item_database: str | None = None
+    raid_icons: dict[int, str] = field(default_factory=dict)
+    gm_icon: str | None = None
 
 
 @dataclass
