@@ -25,6 +25,17 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
     """WotLK game packet handler."""
 
     def _parse_auth_challenge(self, msg: Packet) -> AuthChallengeMessage:
+        """
+        Parse SMSG_AUTH_CHALLENGE and build CMSG_AUTH_SESSION.
+
+        Computes the SHA1 proof and includes addon info.
+
+        Args:
+            msg: Incoming auth challenge packet.
+
+        Returns:
+            AuthChallengeMessage with session_key and response payload.
+        """
         account = global_state.config.wow.account
         msg.skip(4)
         server_seed = msg.read_int()
@@ -55,6 +66,15 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
         return AuthChallengeMessage(self.session_key, pw.build())
 
     def _parse_name_query(self, msg: Packet) -> NameQueryMessage:
+        """
+        Parse SMSG_NAME_QUERY_RESPONSE for WotLK (bitmask-based GUID).
+
+        Args:
+            msg: Incoming name query response.
+
+        Returns:
+            NameQueryMessage with guid, name, and class.
+        """
         guid = 0
         mask = msg.read_byte()
         for i in range(8):
@@ -74,6 +94,15 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
             return NameQueryMessage(guid, "UNKNOWN", 0xFF)
 
     def _parse_char_enum(self, msg: Packet) -> CharEnumMessage | None:
+        """
+        Parse SMSG_CHAR_ENUM for WotLK and find the configured character.
+
+        Args:
+            msg: Incoming character list packet.
+
+        Returns:
+            CharEnumMessage for the matching character, or None.
+        """
         character_bytes = global_state.config.wow.character.lower().encode("utf-8")
         characters_num = msg.read_byte()
         for _ in range(characters_num):
@@ -103,6 +132,18 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
         return None
 
     def _parse_chat_message(self, msg: Packet) -> ChatMessage | None:
+        """
+        Parse SMSG_MESSAGECHAT for WotLK, with GM message detection.
+
+        Detects SMSG_GM_MESSAGECHAT by opcode and sets the ``is_gm`` flag
+        on the returned ChatMessage.
+
+        Args:
+            msg: Incoming chat message packet.
+
+        Returns:
+            ChatMessage or None if the message should be filtered.
+        """
         tp = msg.read_byte()
         lang = msg.read_int_le()
         if lang == -1:
@@ -112,7 +153,8 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
             return None
         msg.skip(4)
 
-        if msg.id == self.SMSG_GM_MESSAGECHAT:
+        is_gm = msg.id == self.SMSG_GM_MESSAGECHAT
+        if is_gm:
             msg.skip(4)
             msg.skip_string()
 
@@ -134,9 +176,16 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
             self._handle_achievement_event(guid, achievement_id)
             return None
 
-        return ChatMessage(guid, tp, txt, channel_name)
+        return ChatMessage(guid, tp, txt, channel_name, is_gm=is_gm)
 
     def _handle_achievement_event(self, guid: int, achievement_id: int) -> None:
+        """
+        Look up the guild member name and fire the achievement callback.
+
+        Args:
+            guid: Character GUID.
+            achievement_id: Numeric achievement ID.
+        """
         member = self.guild_roster.get(guid)
         if member:
             self.game_event_callback.achievement(member.name, achievement_id)
