@@ -1,11 +1,5 @@
 """
-Asyncio-based realm authentication connector.
-
-Manages the full WoW realm login flow:
-  1. CMD_AUTH_LOGON_CHALLENGE  -> server responds with B, g, N, salt
-  2. SRP-6a proof computation
-  3. CMD_AUTH_LOGON_PROOF      -> server validates proof
-  4. CMD_REALM_LIST            -> server returns realm list
+Asyncio-based realm authentication and SRP-6a login flow connector.
 """
 
 from __future__ import annotations
@@ -15,7 +9,7 @@ import hashlib
 import re
 from collections.abc import Callable
 
-from common.bytes import string_to_int, to_hex_string
+from utils.bytes import string_to_int, to_hex_string
 from common.types import Platform, WowExpansion
 from crypto.srp import SRPClient
 from realm.packets import (
@@ -34,12 +28,30 @@ RealmAuthCallback = Callable[
 
 
 def _to_array(data: bytes, reverse: bool = True) -> bytes:
-    """Read bytes, optionally reversing them (matching Scala toArray)."""
+    """
+    Reverse a byte array if requested (mirrors Scala's toArray behaviour).
+
+    Args:
+        data: Raw bytes to process.
+        reverse: When True the output is the byte-reversed copy of data.
+
+    Returns:
+        Original or reversed copy of data.
+    """
     return data[::-1] if reverse else data
 
 
 def _build_crc_hash(realm_build: int, platform: Platform) -> bytes:
-    """Look up the CRC hash for the given build and platform."""
+    """
+    Look up the CRC hash for the given realm build and platform.
+
+    Args:
+        realm_build: Numeric realm build (e.g. 12340).
+        platform: Target platform (Windows or Mac).
+
+    Returns:
+        20-byte CRC hash or 20 zero bytes if not found.
+    """
     return BUILD_CRC_HASHES.get(
         (realm_build, platform), b"\x00" * 20
     )
@@ -67,10 +79,10 @@ def _parse_realm_list(data: bytes, is_vanilla: bool) -> list[RealmListEntry]:
 
     Args:
         data: Raw realm list payload.
-        is_vanilla: Whether parsing for Vanilla (different format).
+        is_vanilla: Parse using Vanilla format when True, TBC+ format otherwise.
 
     Returns:
-        List of realm entries.
+        List of RealmListEntry parsed from the response.
     """
     realms: list[RealmListEntry] = []
     offset = 0
@@ -188,8 +200,49 @@ class RealmConnector:
         assert self._writer is not None
         return self._writer
 
-    async def connect(self) -> None:
-        """Open TCP connection and run the auth state machine."""
+    async def connect(self) -> tuple[str, int, str, int, bytes]:
+        """
+        Open TCP connection, run the full auth state machine, and return
+        game server connection parameters.
+
+        Returns:
+            Tuple of (game_host, game_port, realm_name, realm_id, session_key).
+
+        Raises:
+            ConnectionError: If connection or authentication fails.
+        """
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[tuple[str, int, str, int, bytes]] = loop.create_future()
+
+        _old_success = self._on_success
+        _old_error = self._on_error
+        _old_disconnect = self._on_disconnect
+
+        def _resolve_success(
+            host: str, port: int, name: str, realm_id: int, session_key: bytes,
+        ) -> None:
+            if not future.done():
+                future.set_result((host, port, name, realm_id, session_key))
+            _old_success(host, port, name, realm_id, session_key)
+
+        def _resolve_error() -> None:
+            if not future.done():
+                future.set_exception(
+                    ConnectionError("Realm authentication failed.")
+                )
+            _old_error()
+
+        def _resolve_disconnect() -> None:
+            if not future.done():
+                future.set_exception(
+                    ConnectionError("Disconnected from realm server.")
+                )
+            _old_disconnect()
+
+        self._on_success = _resolve_success
+        self._on_error = _resolve_error
+        self._on_disconnect = _resolve_disconnect
+
         try:
             log("INFO", Tags.REALM, f"Connecting to {self._host}:{self._port}")
             self._reader, self._writer = await asyncio.wait_for(
@@ -199,17 +252,24 @@ class RealmConnector:
             await self._send_challenge()
         except TimeoutError:
             log("ERROR", Tags.REALM, f"Connection timeout to {self._host}:{self._port}")
-            self._on_error()
+            _resolve_error()
         except OSError as e:
             log("ERROR", Tags.REALM,
                 f"Connection error to {self._host}:{self._port}: {e}")
-            self._on_error()
+            _resolve_error()
         except Exception as e:
             log("ERROR", Tags.REALM, f"Unexpected error: {e}")
-            self._on_error()
+            _resolve_error()
+
+        return await future
 
     async def _send_challenge(self) -> None:
-        """Build and send the CMD_AUTH_LOGON_CHALLENGE packet."""
+        """
+        Build and send the CMD_AUTH_LOGON_CHALLENGE packet to the realm server.
+
+        Includes account name, version, platform, locale and other handshake
+        fields. Dispatches to _read_challenge_response after sending.
+        """
         log("DEBUG", Tags.REALM,
             f"Account bytes ({len(self._account)}): {self._account.hex(' ')}")
         version_parts = [int(x) for x in self._version.split(".")]
@@ -241,7 +301,12 @@ class RealmConnector:
         await self._read_challenge_response()
 
     async def _read_challenge_response(self) -> None:
-        """Read and parse the CMD_AUTH_LOGON_CHALLENGE response."""
+        """
+        Read and parse the CMD_AUTH_LOGON_CHALLENGE server response.
+
+        Extracts SRP parameters (B, g, N, salt), handles optional two-factor
+        authentication, computes the client proof and sends it back.
+        """
         buf = await self._r.readexactly(3)
         cmd, error, result = buf[0], buf[1], buf[2]
 
@@ -347,7 +412,12 @@ class RealmConnector:
         await self._read_proof_response(srp)
 
     async def _read_proof_response(self, srp: SRPClient) -> None:
-        """Validate the server proof and request the realm list."""
+        """
+        Validate the server proof, then request the realm list.
+
+        Args:
+            srp: SRP client instance used to compute the local proof for comparison.
+        """
         buf = await self._r.readexactly(2)
         cmd, result = buf[0], buf[1]
         log("DEBUG", Tags.REALM,
@@ -358,7 +428,6 @@ class RealmConnector:
                 f"Proof failed: cmd=0x{cmd:02X} result=0x{result:02X} "
                 f"({AuthResult.get_message(result)})"
             )
-            # Read remaining error payload if this is TBC+
             if self._expansion != WowExpansion.VANILLA:
                 try:
                     extra = await asyncio.wait_for(
@@ -399,7 +468,12 @@ class RealmConnector:
         await self._read_realm_list()
 
     async def _read_realm_list(self) -> None:
-        """Parse the realm list and locate the configured realm."""
+        """
+        Parse the realm list response and locate the configured realm.
+
+        Calls on_success with game server details when the target realm is found,
+        otherwise calls on_error.
+        """
         header = await self._r.readexactly(3)
         size = int.from_bytes(header[1:3], "little")
 
@@ -426,3 +500,9 @@ class RealmConnector:
             game_host, game_port, entry.name, entry.realm_id,
             self._session_key,
         )
+
+    def close(self) -> None:
+        """Close the realm connection if open."""
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
