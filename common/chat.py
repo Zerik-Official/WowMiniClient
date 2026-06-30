@@ -18,19 +18,22 @@ class ChatEvents:
 
     # Vanilla values
     CHAT_MSG_SAY: int = 0x00
+    CHAT_MSG_PARTY: int = 0x01
+    CHAT_MSG_RAID: int = 0x02
     CHAT_MSG_GUILD: int = 0x03
     CHAT_MSG_OFFICER: int = 0x04
     CHAT_MSG_YELL: int = 0x05
     CHAT_MSG_WHISPER: int = 0x06
     CHAT_MSG_EMOTE: int = 0x08
     CHAT_MSG_TEXT_EMOTE: int = 0x09
-    CHAT_MSG_CHANNEL: int = 0x0E
     CHAT_MSG_SYSTEM: int = 0x0A
+    CHAT_MSG_CHANNEL: int = 0x0E
     CHAT_MSG_CHANNEL_JOIN: int = 0x0F
     CHAT_MSG_CHANNEL_LEAVE: int = 0x10
     CHAT_MSG_CHANNEL_LIST: int = 0x11
     CHAT_MSG_CHANNEL_NOTICE: int = 0x12
     CHAT_MSG_CHANNEL_NOTICE_USER: int = 0x13
+    CHAT_MSG_BATTLEGROUND: int = 0x1E
     CHAT_MSG_ACHIEVEMENT: int = 0x30
     CHAT_MSG_GUILD_ACHIEVEMENT: int = 0x31
 
@@ -46,7 +49,10 @@ class ChatEvents:
         cls._expansion = expansion
         is_vanilla = expansion == WowExpansion.VANILLA
 
+        is_tbc_plus = not is_vanilla
         cls.CHAT_MSG_SAY = 0x00 if is_vanilla else 0x01
+        cls.CHAT_MSG_PARTY = 0x01 if is_vanilla else 0x02
+        cls.CHAT_MSG_RAID = 0x0C if is_vanilla else 0x0D
         cls.CHAT_MSG_GUILD = 0x03 if is_vanilla else 0x04
         cls.CHAT_MSG_OFFICER = 0x04 if is_vanilla else 0x05
         cls.CHAT_MSG_YELL = 0x05 if is_vanilla else 0x06
@@ -60,6 +66,7 @@ class ChatEvents:
         cls.CHAT_MSG_CHANNEL_LIST = 0x11 if is_vanilla else 0x14
         cls.CHAT_MSG_CHANNEL_NOTICE = 0x12 if is_vanilla else 0x15
         cls.CHAT_MSG_CHANNEL_NOTICE_USER = 0x13 if is_vanilla else 0x16
+        cls.CHAT_MSG_BATTLEGROUND = 0x1C if is_vanilla else 0x1E
         cls.CHAT_MSG_ACHIEVEMENT = 0x2E if expansion == WowExpansion.MOP else 0x30
         cls.CHAT_MSG_GUILD_ACHIEVEMENT = 0x2F if expansion == WowExpansion.MOP else 0x31
 
@@ -77,6 +84,8 @@ class ChatEvents:
         mapping = {
             "system": cls.CHAT_MSG_SYSTEM,
             "say": cls.CHAT_MSG_SAY,
+            "party": cls.CHAT_MSG_PARTY,
+            "raid": cls.CHAT_MSG_RAID,
             "guild": cls.CHAT_MSG_GUILD,
             "officer": cls.CHAT_MSG_OFFICER,
             "yell": cls.CHAT_MSG_YELL,
@@ -84,6 +93,7 @@ class ChatEvents:
             "whisper": cls.CHAT_MSG_WHISPER,
             "channel": cls.CHAT_MSG_CHANNEL,
             "custom": cls.CHAT_MSG_CHANNEL,
+            "battleground": cls.CHAT_MSG_BATTLEGROUND,
         }
         return mapping.get(tp.lower(), -1)
 
@@ -102,11 +112,14 @@ class ChatEvents:
             return "Emote"
         mapping = {
             cls.CHAT_MSG_SAY: "Say",
+            cls.CHAT_MSG_PARTY: "Party",
+            cls.CHAT_MSG_RAID: "Raid",
             cls.CHAT_MSG_GUILD: "Guild",
             cls.CHAT_MSG_OFFICER: "Officer",
             cls.CHAT_MSG_YELL: "Yell",
             cls.CHAT_MSG_WHISPER: "Whisper",
             cls.CHAT_MSG_CHANNEL: "Channel",
             cls.CHAT_MSG_SYSTEM: "System",
+            cls.CHAT_MSG_BATTLEGROUND: "Battleground",
         }
         return mapping.get(tp, "Unknown")
