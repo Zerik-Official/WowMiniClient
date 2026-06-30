@@ -8,11 +8,14 @@ import struct
 
 
 class Packet:
-    """
-    WoW network packet with sequential reading and bit-level support.
-    """
+    """WoW network packet with sequential reading and bit-level support."""
 
     def __init__(self, id: int, data: bytes = b"") -> None:
+        """
+        Args:
+            id: Opcode identifying the packet type.
+            data: Raw payload bytes to read from.
+        """
         self.id: int = id
         self.data: bytearray = bytearray(data)
         self._pos: int = 0
@@ -70,11 +73,10 @@ class Packet:
         return self.read_byte() != 0
 
     def read_string(self) -> str:
-        """
-        Read a null-terminated UTF-8 string from the current position.
+        """Read a null-terminated UTF-8 string from the current position.
 
         Returns:
-            Decoded string.
+            Decoded string using UTF-8 with replacement for invalid bytes.
         """
         end = self.data.find(b"\x00", self._pos)
         if end == -1:
@@ -90,7 +92,7 @@ class Packet:
         self._pos += n
 
     def skip_string(self) -> None:
-        """Skip past the next null-terminated string."""
+        """Advance the read position past the next null-terminated string."""
         end = self.data.find(b"\x00", self._pos)
         if end == -1:
             self._pos = len(self.data)
@@ -103,8 +105,7 @@ class Packet:
         self._current_byte = 0
 
     def read_bit(self) -> int:
-        """
-        Read a single bit (used by Cataclysm+ parsing).
+        """Read a single bit (used by Cataclysm+ parsing).
 
         Returns:
             0 or 1.
@@ -131,23 +132,53 @@ class Packet:
         return result
 
     def read_bit_seq(self, mask: list[int], *indices: int) -> None:
-        """Read bits into specific indices of *mask*."""
+        """
+        Read one bit per given index and store it into mask[index].
+
+        Args:
+            mask: List whose entries at the given indices will receive a bit.
+            indices: Positions in mask to write the read bits into.
+        """
         for i in indices:
             mask[i] = self.read_bit()
 
     def read_xor_byte(self, mask: int) -> int:
-        """Read a byte XORed with *mask* (0 = skip)."""
+        """
+        Read a byte XORed with the provided mask value.
+
+        When mask is 0 no byte is read and 0 is returned immediately.
+
+        Args:
+            mask: XOR mask applied to the read byte.
+
+        Returns:
+            Byte value after XOR, or 0 when mask is 0.
+        """
         if mask != 0:
             return mask ^ self.read_byte()
         return mask
 
     def read_xor_byte_seq(self, mask: list[int], *indices: int) -> None:
-        """Read and XOR bytes into specific indices of *mask*."""
+        """
+        Call read_xor_byte for each given index, storing the result.
+
+        Args:
+            mask: List whose entries at the given indices will be updated.
+            indices: Positions in mask to apply read_xor_byte on.
+        """
         for i in indices:
             mask[i] = self.read_xor_byte(mask[i])
 
     def slice(self, size: int) -> bytes:
-        """Read and return *size* bytes as a new bytes object."""
+        """
+        Read and return *size* bytes, advancing the read position.
+
+        Args:
+            size: Number of bytes to read.
+
+        Returns:
+            Bytes object of exactly *size* bytes.
+        """
         result = bytes(self.data[self._pos: self._pos + size])
         self._pos += size
         return result
@@ -222,17 +253,34 @@ class PacketBitWriter:
             self.write_bit((value >> i) & 1)
 
     def write_bit_seq(self, mask: list[int], *indices: int) -> None:
-        """Write bits from specific indices of *mask*."""
+        """Write bits from mask at the given indices into the output stream.
+
+        Args:
+            mask: Source list whose entries at *indices* are written as bits.
+            indices: Positions in mask whose values will be written.
+        """
         for i in indices:
             self.write_bit(mask[i])
 
     def write_xor_byte(self, byte: int) -> None:
-        """Write a byte XORed with 1 if non-zero."""
+        """
+        Write a byte XORed with 1 when the value is non-zero.
+
+        Skips writing entirely when byte is 0.
+
+        Args:
+            byte: Value to XOR and write.
+        """
         if byte != 0:
             self.write_byte((byte ^ 1) & 0xFF)
 
     def write_xor_byte_seq(self, mask: list[int], *indices: int) -> None:
-        """Write XOR bytes from specific indices of *mask*."""
+        """Call write_xor_byte for each given index of *mask*.
+
+        Args:
+            mask: Source list whose entries at *indices* will be written.
+            indices: Positions in mask to process.
+        """
         for i in indices:
             self.write_xor_byte(mask[i])
 
@@ -252,7 +300,11 @@ class PacketBitWriter:
         self.data.extend(val)
 
     def flush(self) -> None:
-        """Flush remaining bits as a byte."""
+        """
+        Write any buffered bits as a single byte and reset bit position.
+
+        Does nothing when no bits have been written since last flush.
+        """
         if self._bit_pos < 8:
             self.data.append(self._current_byte & 0xFF)
             self._bit_pos = 8
