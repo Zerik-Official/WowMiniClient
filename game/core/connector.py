@@ -44,6 +44,16 @@ class GameConnector:
                  realm_id: int, session_key: bytes,
                  game_event_callback: Any,
                  on_handler_ready: Callable[..., None] | None = None) -> None:
+        """
+        Args:
+            host: Game server hostname.
+            port: Game server port.
+            realm_name: Name of the realm for logging.
+            realm_id: Numeric realm identifier.
+            session_key: 40-byte SRP session key from realm auth.
+            game_event_callback: DiscordBot instance for event callbacks.
+            on_handler_ready: Optional callback invoked when handler is created.
+        """
         self.host = host
         self.port = port
         self.realm_name = realm_name
@@ -139,6 +149,7 @@ class GameConnector:
         self._handler.on_connected()
 
         ping_task = asyncio.create_task(self._ping_loop())
+        keep_alive_task = asyncio.create_task(self._keep_alive_loop())
         try:
             while True:
                 data = await asyncio.wait_for(reader.read(65536), timeout=60)
@@ -151,13 +162,17 @@ class GameConnector:
                     responses = self._handler.handle_packet(msg)
                     for oid, pl in responses:
                         self._send(oid, pl)
-        except (asyncio.CancelledError, ConnectionError, TimeoutError) as e:
+        except asyncio.CancelledError:
+            raise
+        except (ConnectionError, TimeoutError) as e:
             log("ERROR", Tags.GAME, f"Game connection lost: {e}")
         finally:
             ping_task.cancel()
+            keep_alive_task.cancel()
             self._handler.disconnect()
 
     async def _ping_loop(self) -> None:
+        """Send CMSG_PING every 30 seconds while the handler is in the world."""
         await asyncio.sleep(30)
         while True:
             if self._handler and self._handler.in_world:
@@ -166,7 +181,21 @@ class GameConnector:
                     self._send(self._handler.CMSG_PING, payload)
             await asyncio.sleep(30)
 
+    async def _keep_alive_loop(self) -> None:
+        """Send CMSG_KEEP_ALIVE every 30s (TBC+) to prevent server idle timeout."""
+        await asyncio.sleep(15)
+        while True:
+            if self._handler and self._handler.in_world and hasattr(self._handler, 'CMSG_KEEP_ALIVE'):
+                self._send(self._handler.CMSG_KEEP_ALIVE, b"")
+            await asyncio.sleep(30)
+
     def _send(self, msg_id: int, payload: bytes) -> None:
+        """Encode and send a packet to the game server.
+
+        Args:
+            msg_id: Opcode identifier.
+            payload: Unencrypted payload bytes.
+        """
         if self._writer is None:
             return
         data = self._encoder.encode(msg_id, payload)
