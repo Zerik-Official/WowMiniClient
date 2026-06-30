@@ -60,16 +60,44 @@ class GamePacketDecoder(GamePackets):
         return packets
 
     def _parse_header(self, header: bytes) -> tuple[int, int]:
+        """
+        Parse a 4-byte plain header into opcode and size.
+
+        Args:
+            header: 4-byte header bytes.
+
+        Returns:
+            Tuple of (opcode, payload_size).
+        """
         size = struct.unpack(">H", header[:2])[0] - 2
         id_ = struct.unpack("<H", header[2:4])[0]
         return id_, size
 
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+        """
+        Parse a decrypted 4-byte header into opcode and size.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+
+        Returns:
+            Tuple of (opcode, payload_size).
+        """
         size = ((decrypted[0] & 0xFF) << 8 | decrypted[1] & 0xFF) - 2
         id_ = (decrypted[3] & 0xFF) << 8 | decrypted[2] & 0xFF
         return id_, size
 
     def _decompress(self, id_: int, data: bytes) -> tuple[int, bytes]:
+        """
+        Pass-through decompression (no compression in Vanilla/TBC).
+
+        Args:
+            id_: Original opcode.
+            data: Payload bytes.
+
+        Returns:
+            Unmodified (opcode, data) tuple.
+        """
         return id_, data
 
 
@@ -77,6 +105,19 @@ class GamePacketDecoderWotLK(GamePacketDecoder):
     """WotLK packet decoder with extended encrypted header format."""
 
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+        """
+        Parse a potentially 5-byte encrypted header for WotLK.
+
+        When the high bit of the first byte is set, the header is 5 bytes
+        (4 encrypted + 1 extra decrypted byte for the upper opcode bits).
+        Otherwise it follows the standard 4-byte format.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+
+        Returns:
+            Tuple of (opcode, payload_size).
+        """
         if (decrypted[0] & 0x80) == 0x80:
             crypt = global_state.game_crypt
             if crypt:
@@ -102,6 +143,19 @@ class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
         self._inflater = zlib.decompressobj()
 
     def _decompress(self, id_: int, data: bytes) -> tuple[int, bytes]:
+        """
+        Decompress zlib-compressed Cataclysm data packets.
+
+        Packets with the COMPRESSED_DATA_MASK bit set are zlib-compressed.
+        The first 4 bytes contain the uncompressed size.
+
+        Args:
+            id_: Raw opcode (may have compression mask).
+            data: Payload bytes, possibly compressed.
+
+        Returns:
+            Tuple of (unmasked opcode, decompressed payload).
+        """
         if self._is_compressed(id_):
             decompressed_size = struct.unpack("<I", data[:4])[0]
             compressed = data[4:]
@@ -112,6 +166,15 @@ class GamePacketDecoderCataclysm(GamePacketDecoderWotLK, GamePacketsCataclysm):
 
     @staticmethod
     def _is_compressed(id_: int) -> bool:
+        """
+        Check if the opcode has the Cataclysm compression bit set.
+
+        Args:
+            id_: Raw opcode.
+
+        Returns:
+            True if the compression flag is set.
+        """
         return (
             id_ & GamePacketsCataclysm.COMPRESSED_DATA_MASK
         ) == GamePacketsCataclysm.COMPRESSED_DATA_MASK
@@ -125,11 +188,32 @@ class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
         self._inflater = zlib.decompressobj(-zlib.MAX_WBITS)
 
     def _parse_header(self, header: bytes) -> tuple[int, int]:
+        """
+        Parse a MoP 4-byte plain header (little-endian).
+
+        Args:
+            header: 4-byte header bytes.
+
+        Returns:
+            Tuple of (opcode, payload_size).
+        """
         size = struct.unpack("<H", header[:2])[0] - 2
         id_ = struct.unpack("<H", header[2:4])[0]
         return id_, size
 
     def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+        """
+        Parse a MoP 4-byte encrypted header (compact layout).
+
+        Opcode is stored in the lower 13 bits; size occupies the remaining
+        19 bits.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+
+        Returns:
+            Tuple of (opcode, payload_size).
+        """
         raw = (
             (decrypted[3] << 24)
             | (decrypted[2] << 16)
@@ -141,6 +225,19 @@ class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
         return id_, size
 
     def _decompress(self, id_: int, data: bytes) -> tuple[int, bytes]:
+        """
+        Decompress a MoP SMSG_COMPRESSED_DATA packet.
+
+        Uses a raw inflater (no zlib/gzip header). The server prepends the
+        opcode and uncompressed size in the decompressed data.
+
+        Args:
+            id_: Opcode.
+            data: Payload bytes (12-byte header + compressed data).
+
+        Returns:
+            Tuple of (inner opcode, decompressed payload).
+        """
         if id_ == self.SMSG_COMPRESSED_DATA:
             decompressed_size = struct.unpack("<I", data[:4])[0]
             data = data[12:]
