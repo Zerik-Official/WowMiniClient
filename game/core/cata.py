@@ -42,12 +42,27 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return super().handle_packet(msg)
 
     def _handle_wow_connection(self) -> tuple[int, bytes]:
+        """
+        Build and return the WOW_CONNECTION handshake packet.
+
+        Returns:
+            Tuple of (opcode, payload) with the connection string.
+        """
         pw = PacketWriter()
         pw.write_bytes(b"RLD OF WARCRAFT CONNECTION - CLIENT TO SERVER")
         pw.write_byte(0)
         return (self.WOW_CONNECTION, pw.build())
 
     def _parse_auth_challenge(self, msg: Packet) -> AuthChallengeMessage:
+        """
+        Parse SMSG_AUTH_CHALLENGE for Cataclysm and build the proof payload.
+
+        Args:
+            msg: Incoming auth challenge packet with server seed and addon info.
+
+        Returns:
+            AuthChallengeMessage with session key and response bytes.
+        """
         account = global_state.config.wow.account
         msg.skip(32)
         server_seed = msg.read_int()
@@ -101,6 +116,15 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return AuthChallengeMessage(self.session_key, pw.build())
 
     def _parse_auth_response(self, msg: Packet) -> int:
+        """
+        Parse the auth response code, skipping type-dependent header bytes.
+
+        Args:
+            msg: SMSG_AUTH_RESPONSE packet.
+
+        Returns:
+            Auth response code integer.
+        """
         if msg.remaining() >= 17:
             msg.skip(16)
         elif msg.remaining() >= 2:
@@ -110,6 +134,15 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return super()._parse_auth_response(msg)
 
     def _parse_char_enum(self, msg: Packet) -> CharEnumMessage | None:
+        """
+        Parse SMSG_CHAR_ENUM with Cataclysm bit-packed GUID encoding.
+
+        Args:
+            msg: Character list packet with bit-packed fields.
+
+        Returns:
+            CharEnumMessage for the matching character or None.
+        """
         character_bytes = global_state.config.wow.character.lower().encode("utf-8")
         msg.read_bits(24)
         characters_num = msg.read_bits(17)
@@ -172,6 +205,12 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return None
 
     def _write_player_login(self) -> bytes:
+        """
+        Build the CMSG_PLAYER_LOGIN payload with bit-packed GUID.
+
+        Returns:
+            Encoded payload bytes.
+        """
         pw = PacketBitWriter()
         guid_bytes = list(struct.pack("<Q", self.self_character_id))
         pw.write_bit_seq(guid_bytes, 2, 3, 0, 6, 4, 5, 1, 7)
@@ -180,6 +219,16 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
 
     def _write_join_channel(self, channel_id: int,
                             channel_name_bytes: bytes) -> bytes:
+        """
+        Build the CMSG_JOIN_CHANNEL payload with bit-packed fields.
+
+        Args:
+            channel_id: Numeric channel identifier.
+            channel_name_bytes: UTF-8 encoded channel name bytes.
+
+        Returns:
+            Encoded payload bytes.
+        """
         pw = PacketBitWriter()
         pw.write_int_le(channel_id)
         pw.write_bit(0)
@@ -191,16 +240,40 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return pw.build()
 
     def _query_guild_name(self, out: list[tuple[int, bytes]]) -> None:
+        """
+        Append a CMSG_GUILD_QUERY packet for the player's guild.
+
+        Args:
+            out: Output list to append (opcode, payload) tuples to.
+        """
         pw = PacketWriter()
         pw.write_long_le(self.guild_guid)
         pw.write_long_le(self.self_character_id)
         out.append((self.CMSG_GUILD_QUERY, pw.build()))
 
     def _parse_guild_query(self, msg: Packet) -> GuildInfo:
+        """
+        Parse SMSG_GUILD_QUERY response, skipping Cataclysm header bytes.
+
+        Args:
+            msg: Guild query response packet.
+
+        Returns:
+            GuildInfo with name and rank definitions.
+        """
         msg.skip(4)
         return super()._parse_guild_query(msg)
 
     def _parse_guild_roster(self, msg: Packet) -> dict[int, GuildMember]:
+        """
+        Parse SMSG_GUILD_ROSTER with Cataclysm bit-packed fields.
+
+        Args:
+            msg: Guild roster packet with bit-packed GUIDs, notes, and names.
+
+        Returns:
+            Mapping of GUID to GuildMember.
+        """
         motd_length = msg.read_bits(11)
         count = msg.read_bits(18)
 
@@ -254,6 +327,17 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
                             target_bytes: bytes | None) -> bytes:
+        """
+        Build a CMSG_MESSAGECHAT payload with bit-packed lengths.
+
+        Args:
+            tp: Chat type constant (unused in Cataclysm encoding).
+            msg_bytes: Message text bytes.
+            target_bytes: Target name bytes for whispers, or None.
+
+        Returns:
+            Encoded payload bytes.
+        """
         pw = PacketBitWriter()
         pw.write_int_le(self.language_id)
         if target_bytes is not None:
@@ -266,8 +350,23 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return pw.build()
 
     def _parse_notification(self, msg: Packet) -> str:
+        """
+        Read a notification string with bit-packed length.
+
+        Args:
+            msg: Notification packet.
+
+        Returns:
+            Decoded notification text.
+        """
         length = msg.read_bits(13)
         return msg.slice(length).decode("utf-8", errors="replace")
 
     def _handle_notification(self, msg: Packet) -> None:
+        """
+        Log a server notification message.
+
+        Args:
+            msg: Notification packet to parse and log.
+        """
         log("INFO", Tags.GAME, f"Notification: {self._parse_notification(msg)}")
