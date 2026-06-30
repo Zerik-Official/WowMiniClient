@@ -139,6 +139,8 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         self.in_world = False
         self.game_event_callback.disconnected()
 
+    MAX_WOW_MESSAGE_LENGTH: int = 255
+
     def send_message_to_wow(self, tp: int, message: str,
                             target: str | None = None) -> None:
         """
@@ -146,9 +148,10 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
 
         Args:
             tp: Chat message type constant (e.g. CHAT_MSG_GUILD).
-            message: Text content of the message.
+            message: Text content of the message (truncated to 255 chars).
             target: Optional channel or target name for the message.
         """
+        message = message[:self.MAX_WOW_MESSAGE_LENGTH]
         payload = self._build_chat_message(tp, message.encode("utf-8"),
                                            target.encode("utf-8") if target else None)
         self.send(self.CMSG_MESSAGECHAT, payload)
