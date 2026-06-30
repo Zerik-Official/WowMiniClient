@@ -208,6 +208,26 @@ class DiscordBot(discord.Client):
                 self._send_to_channel(discord_channel_name, formatted)
             )
 
+    def _echo_own_message(self, text: str, tp: int,
+                          channel_name: str | None = None) -> None:
+        player = global_state.config.wow.character
+        if not player:
+            return
+        key = (tp, None)
+        targets = global_state.wow_to_discord.get(key)
+        if not targets:
+            return
+        for discord_channel_name, dcc in targets:
+            formatted = fmt(
+                dcc.format,
+                user=player,
+                message=text,
+                target=channel_name or "",
+            )
+            asyncio.create_task(
+                self._send_to_channel(discord_channel_name, formatted)
+            )
+
     def _is_filtered(self, message: str, filters: Any) -> bool:
         """
         Check if a message matches any configured filter pattern.
@@ -305,7 +325,7 @@ class DiscordBot(discord.Client):
             if cmd_match:
                 await handle_dot_command(
                     cmd_match, message.channel, message.author.display_name,
-                    self._command_handler,
+                    self._command_handler, self._echo_own_message,
                 )
                 return
 
@@ -316,6 +336,7 @@ class DiscordBot(discord.Client):
         for wcc in wow_configs:
             formatted = fmt(wcc.format, message=message.content)
             handler.send_message_to_wow(wcc.type, formatted, wcc.channel)
+            self._echo_own_message(message.content, wcc.type, wcc.channel)
 
     async def _send_to_channel(self, channel_name: str, content: str) -> None:
         """

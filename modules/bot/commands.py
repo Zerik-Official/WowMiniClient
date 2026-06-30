@@ -5,6 +5,7 @@ Discord dot-command dispatch for .who, .gmotd, .r (whisper reply), etc.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from common.chat import ChatEvents
@@ -18,6 +19,7 @@ async def handle_dot_command(
     channel: Any,
     author_name: str,
     handler: GameCommandHandler | None,
+    echo_callback: Callable[[str, int, str | None], None] | None = None,
 ) -> None:
     """
     Execute a dot command by dispatching to the WoW command handler.
@@ -30,6 +32,7 @@ async def handle_dot_command(
         channel: Discord channel to send response messages to.
         author_name: Display name of the user who issued the command.
         handler: Game command handler for WoW interaction, or None if not connected.
+        echo_callback: Optional callback to echo outgoing messages back to Discord.
     """
     if handler is None:
         return
@@ -49,6 +52,8 @@ async def handle_dot_command(
         handler.send_message_to_wow(
             ChatEvents.CHAT_MSG_WHISPER, text, target,
         )
+        if echo_callback:
+            echo_callback(text, ChatEvents.CHAT_MSG_WHISPER, target)
         return
     else:
         await channel.send(
