@@ -1,8 +1,8 @@
 """
 Entry point for WowMiniClient.
 
-Loads config, populates routing maps, starts Discord bot and realm
-authentication, then on success launches the game connector.
+Loads config, builds routing maps, starts the Discord bot and the WoW
+reconnection loop.
 """
 
 from __future__ import annotations
@@ -11,76 +11,24 @@ import asyncio
 import sys
 from pathlib import Path
 
-from bot.client import DiscordBot
+from modules.bot.client import DiscordBot
 from common.config import load_config
-from common.types import ChatDirection, WowChatConfig, global_state
-from game.core.connector import GameConnector
-from game.handler import GamePacketHandler
-from realm.connector import RealmConnector
+from common.routing import build_channel_maps
+from common.types import WowChatConfig, global_state
+from game.session import WowSessionManager
 from utils.logger import Tags, log
 
 
-def _build_channel_maps(config: WowChatConfig) -> None:
-    """Populate global routing maps from parsed channel configs."""
-    for entry in config.channels:
-        direction = entry.chat_direction
-        if direction in (ChatDirection.BOTH, ChatDirection.DISCORD_TO_WOW):
-            global_state.discord_to_wow[entry.discord.channel].add(entry.wow)
-        if direction in (ChatDirection.BOTH, ChatDirection.WOW_TO_DISCORD):
-            key = (entry.wow.type, entry.wow.channel.lower() if entry.wow.channel else None)
-            global_state.wow_to_discord[key].add(
-                (entry.discord.channel, entry.discord),
-            )
-            if entry.wow.filters and entry.wow.filters.enabled:
-                global_state.wow_channel_filters[key] = entry.wow.filters
-
-    guild = config.guild
-    if guild:
-        for event_key, notif in guild.notification_configs.items():
-            if notif.enabled:
-                channel = notif.channel or "guild-chat"
-                global_state.guild_events_to_discord[event_key].add(channel)
-
-
 class App:
-    """Application state holding config, bot, and realm connector."""
+    """Application orchestrator holding config, bot, and WoW session manager."""
 
     def __init__(self, config_path: str | Path) -> None:
         self.config_path = Path(config_path)
         self.config: WowChatConfig | None = None
         self.bot: DiscordBot | None = None
-        self.realm_connector: RealmConnector | None = None
-
-    def _on_auth_success(
-        self, host: str, port: int, name: str, realm_id: int,
-        session_key: bytes,
-    ) -> None:
-        """Handle successful realm auth and start the game connector."""
-        bot = self.bot
-        if bot is None:
-            log("CRITICAL", Tags.MAIN, "Bot not initialized.")
-            return
-
-        def _on_handler_ready(h: GamePacketHandler) -> None:
-            bot.set_command_handler(h)
-
-        connector = GameConnector(
-            host, port, name, realm_id, session_key, bot,
-            on_handler_ready=_on_handler_ready,
-        )
-        asyncio.create_task(connector.connect())
-
-    @staticmethod
-    def _on_auth_error() -> None:
-        log("ERROR", Tags.REALM, "Realm authentication failed.")
-        sys.exit(1)
-
-    @staticmethod
-    def _on_disconnect() -> None:
-        log("WARNING", Tags.REALM, "Disconnected from realm server.")
 
     async def run(self) -> None:
-        """Load config, start Discord bot and realm auth concurrently."""
+        """Load config, start Discord bot and WoW reconnection loop."""
         if not self.config_path.exists():
             log("ERROR", Tags.MAIN, f"Config not found: {self.config_path}")
             sys.exit(1)
@@ -91,7 +39,7 @@ class App:
         global_state.expansion = cfg.wow.expansion
         global_state.realm_build = cfg.wow.realm_build or 0
         global_state.game_build = cfg.wow.game_build or 0
-        _build_channel_maps(cfg)
+        build_channel_maps(cfg)
 
         build_num = cfg.wow.game_build or cfg.wow.realm_build or 0
         log(
@@ -101,38 +49,33 @@ class App:
         )
 
         self.bot = DiscordBot(cfg)
+        session = WowSessionManager(cfg, self.bot)
+
         bot_task = asyncio.create_task(self._run_discord(cfg.discord.token))
+        wow_task = asyncio.create_task(session.run())
 
-        await asyncio.sleep(2)
-
-        rl = cfg.wow.realmlist
-        self.realm_connector = RealmConnector(
-            host=rl.host,
-            port=rl.port,
-            account=cfg.wow.account,
-            password=cfg.wow.password,
-            version=cfg.wow.version,
-            realm_build=cfg.wow.game_build or cfg.wow.realm_build or 5875,
-            expansion=cfg.wow.expansion,
-            platform=cfg.wow.platform,
-            locale=cfg.wow.locale,
-            realm_name=rl.name,
-            on_success=self._on_auth_success,
-            on_error=self._on_auth_error,
-            on_disconnect=self._on_disconnect,
-        )
-        await self.realm_connector.connect()
-
-        await bot_task
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            wow_task.cancel()
+            try:
+                await wow_task
+            except asyncio.CancelledError:
+                pass
 
     async def _run_discord(self, token: str) -> None:
         """Run the Discord bot, reconnecting on network errors."""
         while True:
             try:
                 await self.bot.start(token, reconnect=True)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 log("ERROR", Tags.DISCORD, f"Discord connection error: {exc}")
                 await asyncio.sleep(10)
+
 
 def main() -> None:
     """Parse config and run the application."""
