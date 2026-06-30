@@ -18,6 +18,11 @@ class GameResources:
 
     @classmethod
     def _ensure_loaded(cls) -> None:
+        """
+        Load default area/achievement CSV data if not yet loaded.
+
+        Used before lazy lookups to guarantee the maps are populated.
+        """
         if cls.AREA:
             return
         cls.AREA = cls._read_csv("pre_cata_areas.csv")
@@ -43,6 +48,15 @@ class GameResources:
 
     @classmethod
     def _read_csv(cls, filename: str) -> dict[int, str]:
+        """
+        Read a CSV resource file into a dict of id → name.
+
+        Args:
+            filename: Name of the CSV file in the ``data`` package.
+
+        Returns:
+            Mapping of integer IDs to name strings.
+        """
         result: dict[int, str] = {}
         data = pkgutil.get_data("data", filename)
         if data is None:
