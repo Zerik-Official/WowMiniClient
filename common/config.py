@@ -250,6 +250,7 @@ def load_config(path: str | Path) -> WowChatConfig:
 
     discord_cfg = DiscordConfig(
         token=_env_fallback("DISCORD_TOKEN", discord_raw.get("token", "")),
+        bot_system_channel=discord_raw.get("bot_system_channel"),
         enable_dot_commands=bool(
             discord_raw.get("enable_dot_commands", True)
         ),
@@ -263,6 +264,12 @@ def load_config(path: str | Path) -> WowChatConfig:
             discord_raw.get("enable_tag_failed_notifications", True)
         ),
         item_database=discord_raw.get("item_database"),
+        raid_icons={
+            int(k): v
+            for k, v in discord_raw.get("raid_icons", {}).items()
+            if k != "enabled"
+        },
+        gm_icon=discord_raw.get("gm_icon"),
     )
 
     realmlist_str: str = wow_raw.get("realmlist", "127.0.0.1:3724")
