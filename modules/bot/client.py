@@ -203,12 +203,12 @@ class DiscordBot(discord.Client):
         wow_filters = global_state.wow_channel_filters.get(key)
         message = convert_wow_markup(message, self._config.discord.item_database)
         message = replace_raid_icons(message, self._config.discord.raid_icons)
-        if is_gm and self._config.discord.gm_icon:
-            sender_name = f"{self._config.discord.gm_icon} {sender_name}" if sender_name else self._config.discord.gm_icon
         for discord_channel_name, dcc in targets:
             if self._is_filtered(message, wow_filters) or self._is_filtered(message, dcc.filters):
                 continue
             formatted = fmt(dcc.format, user=sender_name, message=message)
+            if is_gm and self._config.discord.gm_icon:
+                formatted = f"{self._config.discord.gm_icon} {formatted}"
             asyncio.create_task(
                 self._send_to_channel(discord_channel_name, formatted)
             )

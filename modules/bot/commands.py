@@ -48,6 +48,7 @@ async def handle_dot_command(
             await channel.send(":grey_question: Usa: `.r nombre mensaje`")
             return
         target, _, text = args.partition(" ")
+        target = target.capitalize()
         handler.send_message_to_wow(
             ChatEvents.CHAT_MSG_WHISPER, text, target,
         )
