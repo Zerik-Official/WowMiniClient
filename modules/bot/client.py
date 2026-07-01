@@ -87,6 +87,9 @@ class DiscordBot(discord.Client):
         log("WARNING", Tags.DISCORD, "Disconnected from WoW.")
         self._command_handler = None
 
+    def guild_roster_updated(self) -> None:
+        """Stub: called when the WoW guild roster is refreshed."""
+
     def error(self) -> None:
         """Notify the connected Discord channel of an authentication failure."""
         ch = self._connected_channel

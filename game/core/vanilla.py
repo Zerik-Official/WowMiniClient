@@ -579,24 +579,26 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         Returns:
             Dict mapping GUID to GuildMember.
         """
-        msg.skip(1)
         count = msg.read_int_le()
-        msg.skip(1)
+        self.guild_motd = msg.read_string()
+        msg.skip_string()
+        rank_count = msg.read_int_le()
+        msg.skip(4 * rank_count)
         roster: dict[int, GuildMember] = {}
         for _ in range(count):
             guid = msg.read_long_le()
+            is_online = msg.read_boolean()
             name = msg.read_string()
             msg.skip(4)
-            char_class = msg.read_byte()
-            msg.skip(1)
             level = msg.read_byte()
+            char_class = msg.read_byte()
             zone_id = msg.read_int_le()
-            last_logoff = msg.read_float_le()
+            if is_online:
+                last_logoff = 0.0
+            else:
+                last_logoff = msg.read_float_le()
             msg.skip_string()
             msg.skip_string()
-            flags = msg.read_int_le()
-            msg.skip(1)
-            is_online = (flags & 0x01) != 0
             roster[guid] = GuildMember(name, is_online, char_class, level, zone_id, last_logoff)
         return roster
 

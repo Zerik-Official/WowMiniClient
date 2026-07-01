@@ -108,7 +108,41 @@ class GamePacketHandlerTBC(GamePacketHandler, GamePacketsTBC):
         return super()._parse_chat_message(msg)
 
     def _parse_guild_roster(self, msg: Packet) -> dict[int, GuildMember]:
-        return super()._parse_guild_roster(msg)
+        """
+        Parse SMSG_GUILD_ROSTER for TBC (and WotLK via inheritance).
+
+        Same as Vanilla but with different rank header size (56 B per rank)
+        and an extra unknown byte per member.
+
+        Args:
+            msg: Incoming guild roster packet.
+
+        Returns:
+            Dict mapping GUID to GuildMember.
+        """
+        count = msg.read_int_le()
+        self.guild_motd = msg.read_string()
+        msg.skip_string()
+        rank_count = msg.read_int_le()
+        msg.skip(56 * rank_count)
+        roster: dict[int, GuildMember] = {}
+        for _ in range(count):
+            guid = msg.read_long_le()
+            is_online = msg.read_boolean()
+            name = msg.read_string()
+            msg.skip(4)
+            level = msg.read_byte()
+            char_class = msg.read_byte()
+            msg.skip(1)
+            zone_id = msg.read_int_le()
+            if is_online:
+                last_logoff = 0.0
+            else:
+                last_logoff = msg.read_float_le()
+            msg.skip_string()
+            msg.skip_string()
+            roster[guid] = GuildMember(name, is_online, char_class, level, zone_id, last_logoff)
+        return roster
 
     def _write_join_channel(self, channel_id: int,
                             channel_name_bytes: bytes) -> bytes:
