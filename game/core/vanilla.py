@@ -539,9 +539,19 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         if event_key is None:
             return
 
-        template = global_state.config.guild.localized(self.guild_info.name if self.guild_info else "Unknown", event_key)
-        if not template:
+        _EVENT_TO_CFG: dict[str, str] = {
+            "ge_promoted": "promoted", "ge_demoted": "demoted",
+            "ge_motd": "motd", "ge_joined": "joined",
+            "ge_left": "left", "ge_removed": "removed",
+            "ge_signed_on": "online", "ge_signed_off": "offline",
+        }
+        cfg_key = _EVENT_TO_CFG.get(event_key)
+        if not cfg_key:
             return
+        notif = global_state.config.guild.notification_configs.get(cfg_key)
+        if not notif or not notif.enabled:
+            return
+        template = notif.format
 
         name = messages[0] if len(messages) > 0 else ""
         msg = template.replace("%n", name)
