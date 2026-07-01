@@ -1,48 +1,61 @@
-"""
-Warden anti-cheat reply handlers for Vanilla through Cataclysm (and MoP variant).
-"""
+"""Warden anti-cheat reply handlers for Vanilla through Cataclysm (and MoP variant)."""
 
 from __future__ import annotations
 
 import hashlib
-import logging
 import struct
 import zlib
 
 from crypto.rc4 import RC4
 from crypto.sha1randx import SHA1Randx
+from utils.logger import Tags, log
 from warden.packets import WardenPackets
-
-logger = logging.getLogger(__name__)
 
 
 class WardenHandler:
-    """Base Warden reply handler for Vanilla through Cataclysm."""
+    """
+    Base Warden reply handler for Vanilla through Cataclysm.
 
-    WARDEN_MODULE_LENGTH = 16
+    Manages the cryptographic handshake, module loading, cheat check responses,
+    and hash rekeying required by the Warden anti-cheat system.
+    """
+
+    WARDEN_MODULE_LENGTH: int = 16
 
     def __init__(self, session_key: bytes) -> None:
+        """
+        Initialize the handler with a session key.
+
+        Derives client and server RC4 ciphers from the session key via
+        SHA1Randx.
+
+        Args:
+            session_key: 16-byte session key established during authentication.
+        """
         sha1rand = SHA1Randx(session_key)
-        self._client_crypt = RC4(sha1rand.generate(16))
-        self._server_crypt = RC4(sha1rand.generate(16))
+        self._client_crypt: RC4 = RC4(sha1rand.generate(16))
+        self._server_crypt: RC4 = RC4(sha1rand.generate(16))
         self._module_crypt: RC4 | None = None
-        self._module_name = ""
-        self._module_seed = bytearray(16)
-        self._module_length = 0
-        self._module_data = bytearray()
+        self._module_name: str = ""
+        self._module_seed: bytearray = bytearray(16)
+        self._module_length: int = 0
+        self._module_data: bytearray = bytearray()
 
     def handle(self, data: bytes) -> tuple[int, bytes | None]:
         """
         Process an incoming Warden packet and generate a response.
 
+        Decrypts the packet, dispatches to the appropriate handler based on
+        opcode, and returns the response.
+
         Args:
-            data: Raw warden packet bytes (not yet decrypted).
+            data: Raw Warden packet bytes (not yet decrypted).
 
         Returns:
-            Tuple of (warden_opcode_id, response_bytes_or_None).
+            Tuple of (warden_opcode, response_bytes_or_None).
         """
         decrypted = self._server_crypt.crypt(data)
-        logger.debug("WARDEN PACKET (%d): %s", len(decrypted), decrypted.hex())
+        log("DEBUG", Tags.WARDEN, f"WARDEN PACKET ({len(decrypted)}): {decrypted.hex()}")
 
         opcode = decrypted[0]
         payload = decrypted[1:]
@@ -61,18 +74,55 @@ class WardenHandler:
         return opcode, response
 
     def _encrypt_and_finalize(self, response: bytes) -> bytes:
-        """Encrypt the response with the client crypt."""
+        """
+        Encrypt the response with the client crypt.
+
+        Args:
+            response: Plaintext response bytes.
+
+        Returns:
+            Encrypted, finalized bytes ready for transmission.
+        """
         return self._form_response(self._client_crypt.crypt(response))
 
     def _form_response(self, out: bytes) -> bytes:
-        """No-op wrapper; overridden in MoP to add length prefix."""
+        """
+        No-op wrapper; overridden in MoP to add length prefix.
+
+        Args:
+            out: Encrypted response bytes.
+
+        Returns:
+            Response bytes as-is.
+        """
         return out
 
     def _get_encrypted_length(self, data: bytes) -> int:
-        """Return the usable encrypted length. Overridden in MoP."""
+        """
+        Return the usable encrypted length. Overridden in MoP.
+
+        Args:
+            data: Raw packet bytes.
+
+        Returns:
+            Length of the encrypted payload.
+        """
         return len(data)
 
     def _handle_module_use(self, data: bytes) -> bytes | None:
+        """
+        Handle WARDEN_SMSG_MODULE_USE.
+
+        Extracts the module name, seed, and length; creates the module cipher;
+        and responds with WARDEN_CMSG_MODULE_OK.
+
+        Args:
+            data: Payload containing module name (16 bytes), seed (16 bytes),
+                  and length (4 bytes, little-endian).
+
+        Returns:
+            Encrypted module-OK response.
+        """
         self._module_name = data[: self.WARDEN_MODULE_LENGTH].hex().upper()
         seed_start = self.WARDEN_MODULE_LENGTH
         seed_end = seed_start + 16
@@ -84,6 +134,20 @@ class WardenHandler:
         return self._encrypt_and_finalize(bytes([WardenPackets.WARDEN_CMSG_MODULE_OK]))
 
     def _handle_module_cache(self, data: bytes) -> bytes | None:
+        """
+        Handle WARDEN_SMSG_MODULE_CACHE.
+
+        Accumulates compressed module chunks. Once the full module has been
+        received, decompresses it and responds with WARDEN_CMSG_MODULE_OK.
+
+        Args:
+            data: Payload containing a 2-byte length prefix followed by
+                  compressed module data.
+
+        Returns:
+            Encrypted module-OK response once the module is complete,
+            or None if more chunks are expected.
+        """
         length = struct.unpack("<H", data[:2])[0]
         compressed = data[2:2 + length]
         self._module_data.extend(compressed)
@@ -104,6 +168,19 @@ class WardenHandler:
         return None
 
     def _handle_cheat_checks(self, data: bytes) -> bytes | None:
+        """
+        Handle WARDEN_SMSG_CHEAT_CHECKS_REQUEST.
+
+        Builds a digest response (SHA-1 + MD5 over the provided key string)
+        and returns it encrypted.
+
+        Args:
+            data: Payload containing a 1-byte string length followed by a
+                  null-terminated key string.
+
+        Returns:
+            Encrypted cheat-check result bytes.
+        """
         str_length = data[0]
         str_data = data[1:1 + str_length]
         null_pos = str_data.find(b"\x00")
@@ -117,6 +194,13 @@ class WardenHandler:
         return self._form_response(encrypted)
 
     def _form_cheat_checks_digest(self, out: bytearray, key: bytes) -> None:
+        """
+        Append SHA-1 and MD5 digests of the key to the output.
+
+        Args:
+            out: Mutable bytearray to write digests into.
+            key: Key bytes to hash.
+        """
         md_sha1 = hashlib.sha1()
         md_sha1.update(key)
         md_sha1.update(struct.pack("<I", 0xFEEDFACE))
@@ -127,6 +211,19 @@ class WardenHandler:
         out.extend(md_md5.digest())
 
     def _handle_hash_request(self, data: bytes) -> bytes | None:
+        """
+        Handle WARDEN_SMSG_HASH_REQUEST.
+
+        Performs a key exchange: transforms client and server keys using
+        predefined constants, sends the client hash response, then rekeys
+        both ciphers with the new keys.
+
+        Args:
+            data: Payload containing 4 little-endian 32-bit integers (client key).
+
+        Returns:
+            Encrypted hash-result bytes.
+        """
         client_key = list(struct.unpack("<4I", data[:16]))
 
         server_key = [0] * 4
@@ -162,16 +259,45 @@ class WardenHandler:
 class WardenHandlerMoP18414(WardenHandler):
     """MoP Warden handler with 32-byte module names and SHA-256."""
 
-    WARDEN_MODULE_LENGTH = 32
+    WARDEN_MODULE_LENGTH: int = 32
 
     def _get_encrypted_length(self, data: bytes) -> int:
+        """
+        Return the usable encrypted length from the first 4 bytes.
+
+        MoP prefixes the packet with a 4-byte length field.
+
+        Args:
+            data: Raw packet bytes.
+
+        Returns:
+            Encrypted payload length.
+        """
         return struct.unpack("<I", data[:4])[0]  # type: ignore[no-any-return]
 
     def _form_response(self, out: bytes) -> bytes:
+        """
+        Prepend a 4-byte little-endian length prefix to the response.
+
+        Args:
+            out: Encrypted response bytes.
+
+        Returns:
+            Length-prefixed response bytes.
+        """
         length_prefix = struct.pack("<I", len(out))
         return length_prefix + out
 
     def _form_cheat_checks_digest(self, out: bytearray, key: bytes) -> None:
+        """
+        Append SHA-1 and SHA-256 digests of the key to the output.
+
+        MoP replaces the second MD5 hash with SHA-256.
+
+        Args:
+            out: Mutable bytearray to write digests into.
+            key: Key bytes to hash.
+        """
         md_sha1 = hashlib.sha1()
         md_sha1.update(key)
         out.extend(md_sha1.digest())
