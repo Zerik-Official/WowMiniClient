@@ -11,6 +11,7 @@ import struct
 from common.chat import ChatEvents
 from utils.logger import Tags, log
 from game.core.buffer import Packet, PacketWriter
+from game.core.gm_commands import LANG_ADDON
 from common.types import global_state
 from game.core.packets import GamePacketsWotLK
 from game.core.tbc import GamePacketHandlerTBC
@@ -146,11 +147,7 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
         """
         tp = msg.read_byte()
         lang = msg.read_int_le()
-        if lang == -1:
-            return None
         guid = msg.read_long_le()
-        if tp != ChatEvents.CHAT_MSG_SYSTEM and guid == self.self_character_id:
-            return None
         msg.skip(4)
 
         is_gm = msg.id == self.SMSG_GM_MESSAGECHAT
@@ -162,18 +159,23 @@ class GamePacketHandlerWotLK(GamePacketHandlerTBC, GamePacketsWotLK):
         if tp == ChatEvents.CHAT_MSG_CHANNEL:
             channel_name = msg.read_string()
 
-        if tp != ChatEvents.CHAT_MSG_GUILD_ACHIEVEMENT and not self._check_channel_enabled(tp, channel_name):
-            return None
-
         msg.skip(8)
         txt_len = msg.read_int_le()
         txt = msg.slice(txt_len - 1).decode("utf-8", errors="replace")
         msg.skip(1)
-        msg.skip(1)
+
+        if self._intercept_gm_response(tp, lang, txt) or lang == LANG_ADDON:
+            return None
 
         if tp == ChatEvents.CHAT_MSG_GUILD_ACHIEVEMENT:
+            msg.skip(1)
             achievement_id = msg.read_int_le()
             self._handle_achievement_event(guid, achievement_id)
+            return None
+
+        if not self._check_channel_enabled(tp, channel_name):
+            return None
+        if tp != ChatEvents.CHAT_MSG_SYSTEM and guid == self.self_character_id:
             return None
 
         return ChatMessage(guid, tp, txt, channel_name, is_gm=is_gm)
