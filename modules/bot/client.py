@@ -16,12 +16,14 @@ from common.chat import ChatEvents
 from common.formatters import _GUILD_EVENT_ARGS, fmt
 from common.types import WowChatConfig, global_state
 from game.core.command_handler import GameCommandHandler
+from game.core.gm_commands import GmCommandResult, GmCommandStatus
 from game.core.resources import GameResources
 from modules.bot.commands import  handle_dot_command
 from utils.logger import Tags, log
 from utils.markup import convert_wow_markup, replace_raid_icons
 
 _DOT_COMMAND_RE = re.compile(r"^\.(\w+)\s*(.*)")
+_GM_EMBED_OUTPUT_LIMIT = 3900
 
 class _RateLimiter:
     """Simple rate limiter that ensures a minimum interval between actions."""
@@ -343,7 +345,12 @@ class DiscordBot(discord.Client):
         if message.author.bot:
             return
 
-        channel_name = message.channel.name
+        channel_name = getattr(message.channel, "name", None)
+        gm_cfg = self._config.gm_commands
+        if gm_cfg.enabled and gm_cfg.channel and channel_name == gm_cfg.channel:
+            await self._handle_gm_command(message)
+            return
+
         wow_configs = global_state.discord_to_wow.get(channel_name)
         if not wow_configs:
             return
@@ -368,6 +375,85 @@ class DiscordBot(discord.Client):
             formatted = fmt(wcc.format, message=message.content)
             handler.send_message_to_wow(wcc.type, formatted, wcc.channel)
             self._echo_own_message(message.content, wcc.type, wcc.channel)
+
+    async def _handle_gm_command(self, message: Any) -> None:
+        """
+        Execute a message from the GM commands channel as a server command.
+
+        Only members holding one of the configured ``allowed_roles`` may run
+        commands; blocked command prefixes are rejected before sending.
+
+        Args:
+            message: Incoming Discord message whose content is the command.
+        """
+        gm_cfg = self._config.gm_commands
+        command = message.content.strip()
+        if not command:
+            return
+
+        author = message.author
+        role_ids = {role.id for role in getattr(author, "roles", [])}
+        if not role_ids & gm_cfg.allowed_roles:
+            log("WARNING", Tags.COMMAND,
+                f"{author} ({author.id}) denied GM command: {command}")
+            await message.reply("You are not allowed to run GM commands.",
+                                mention_author=False)
+            return
+
+        normalized = command.lstrip(".!").lower()
+        if any(normalized.startswith(b) for b in gm_cfg.blocked_commands):
+            log("WARNING", Tags.COMMAND,
+                f"{author} ({author.id}) tried blocked GM command: {command}")
+            await message.reply("This command is blocked.", mention_author=False)
+            return
+
+        handler = self._command_handler
+        if handler is None:
+            await message.reply("Not connected to the WoW server.",
+                                mention_author=False)
+            return
+
+        async with message.channel.typing():
+            result = await handler.execute_gm_command(command)
+
+        log("INFO", Tags.COMMAND,
+            f"{author} ({author.id}) ran GM command: {command} -> {result.status}")
+        await message.reply(embed=self._build_gm_result_embed(result),
+                            mention_author=False)
+
+    def _build_gm_result_embed(self, result: GmCommandResult) -> discord.Embed:
+        """
+        Format a GM command result as a Discord embed.
+
+        Args:
+            result: Executed command result.
+
+        Returns:
+            Embed with status, command and the server reply in a code block.
+        """
+        titles: dict[GmCommandStatus, tuple[str, discord.Colour]] = {
+            GmCommandStatus.OK: ("Command executed", discord.Colour.green()),
+            GmCommandStatus.COMPLETED: ("Command executed", discord.Colour.green()),
+            GmCommandStatus.FAILED: ("Command failed", discord.Colour.red()),
+            GmCommandStatus.TIMEOUT: ("No response", discord.Colour.orange()),
+            GmCommandStatus.REJECTED: ("Command rejected", discord.Colour.red()),
+        }
+        title, colour = titles[result.status]
+        lines = [convert_wow_markup(line, None) for line in result.lines]
+        output = "\n".join(lines).replace("```", "``​`") or "(no output)"
+        limit = _GM_EMBED_OUTPUT_LIMIT
+        if len(output) > limit:
+            output = output[:limit] + "\n… (truncated)"
+
+        embed = discord.Embed(
+            title=title,
+            colour=colour,
+            description=f"```\n{output}\n```",
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
+        )
+        embed.add_field(name="Command", value=f"`.{result.command[:1000]}`", inline=False)
+        embed.set_footer(text="addon channel" if result.via_addon else "chat")
+        return embed
 
     async def _send_to_channel(self, channel_name: str, content: str) -> None:
         """
