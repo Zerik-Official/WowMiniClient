@@ -1,10 +1,14 @@
 """
-GameCommandHandler interface defining message sending and WHO/GMOTD commands.
+GameCommandHandler interface defining message sending, WHO/GMOTD and GM commands.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game.core.gm_commands import GmCommandResult
 
 
 class GameCommandHandler(ABC):
@@ -51,4 +55,16 @@ class GameCommandHandler(ABC):
 
         Returns:
             Guild MOTD string, or None if not yet received.
+        """
+
+    @abstractmethod
+    async def execute_gm_command(self, command: str) -> GmCommandResult:
+        """
+        Execute a GM command on the server and wait for its reply.
+
+        Args:
+            command: Command text, with or without a leading dot.
+
+        Returns:
+            GmCommandResult with status and reply lines.
         """
