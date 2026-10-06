@@ -14,11 +14,16 @@ from utils.logger import Tags, log
 
 
 class GamePacketDecoder(GamePackets):
-    """Vanilla/TBC packet decoder with header parsing and decryption."""
+    """
+    Vanilla/TBC packet decoder with header parsing and decryption.
+    """
 
     HEADER_LENGTH = 4
 
     def __init__(self) -> None:
+        self._buffer = bytearray()
+        self._has_header = False
+        self._decrypted_header: list[int] | None = None
         self._size = 0
         self._id = 0
 
@@ -26,7 +31,8 @@ class GamePacketDecoder(GamePackets):
         """
         Parse raw TCP data into a list of decoded packets.
 
-        Handles header parsing, decryption, and decompression.
+        Handles header parsing, decryption, and decompression. Incomplete
+        headers or payloads stay buffered until more data arrives.
 
         Args:
             data: Raw bytes received from the server.
@@ -35,29 +41,77 @@ class GamePacketDecoder(GamePackets):
             List of (opcode, payload) tuples for each complete packet.
         """
         packets: list[tuple[int, bytes]] = []
-        buf = bytearray(data)
-        while len(buf) >= self.HEADER_LENGTH:
-            if self._size == 0 and self._id == 0:
-                crypt = global_state.game_crypt
-                header = bytes(buf[: self.HEADER_LENGTH])
-                if crypt and crypt.is_init:
-                    decrypted = crypt.decrypt(list(header))
-                    self._id, self._size = self._parse_header_encrypted(decrypted)
-                else:
-                    self._id, self._size = self._parse_header(header)
-                buf = buf[self.HEADER_LENGTH :]
-
-            if self._size > 0 and len(buf) >= self._size:
-                payload = bytes(buf[: self._size])
-                buf = buf[self._size :]
-                new_id, decompressed = self._decompress(self._id, payload)
-                log("DEBUG", Tags.GAME, f"RECV PACKET: {new_id:04X} - {decompressed.hex()}")
-                packets.append((new_id, decompressed))
-                self._size = 0
-                self._id = 0
-            else:
+        self._buffer.extend(data)
+        while True:
+            if not self._has_header and not self._read_header():
                 break
+            if len(self._buffer) < self._size:
+                break
+
+            payload = bytes(self._buffer[: self._size])
+            del self._buffer[: self._size]
+            new_id, decompressed = self._decompress(self._id, payload)
+            log("DEBUG", Tags.GAME, f"RECV PACKET: {new_id:04X} - {decompressed.hex()}")
+            packets.append((new_id, decompressed))
+            self._has_header = False
+            self._size = 0
+            self._id = 0
         return packets
+
+    def _read_header(self) -> bool:
+        """
+        Consume and parse the next packet header from the buffer.
+
+        Encrypted headers are decrypted exactly once; if an extended header
+        needs extra bytes that have not arrived yet, the decrypted part is
+        kept so the stream cipher never processes the same bytes twice.
+
+        Returns:
+            True if a full header was parsed, False if more data is needed.
+        """
+        crypt = global_state.game_crypt
+        if crypt is None or not crypt.is_init:
+            if len(self._buffer) < self.HEADER_LENGTH:
+                return False
+            header = bytes(self._buffer[: self.HEADER_LENGTH])
+            del self._buffer[: self.HEADER_LENGTH]
+            self._id, self._size = self._parse_header(header)
+            self._has_header = True
+            return True
+
+        if self._decrypted_header is None:
+            if len(self._buffer) < self.HEADER_LENGTH:
+                return False
+            header = bytearray(self._buffer[: self.HEADER_LENGTH])
+            del self._buffer[: self.HEADER_LENGTH]
+            self._decrypted_header = list(crypt.decrypt(header))
+
+        extra_length = self._extra_header_length(self._decrypted_header)
+        if len(self._buffer) < extra_length:
+            return False
+        extra: list[int] = []
+        if extra_length:
+            extra = list(crypt.decrypt(bytearray(self._buffer[:extra_length])))
+            del self._buffer[:extra_length]
+
+        self._id, self._size = self._parse_header_encrypted(
+            self._decrypted_header, extra,
+        )
+        self._decrypted_header = None
+        self._has_header = True
+        return True
+
+    def _extra_header_length(self, decrypted: list[int]) -> int:
+        """
+        Number of encrypted header bytes that follow the first four.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+
+        Returns:
+            Extra header byte count (always 0 before WotLK).
+        """
+        return 0
 
     def _parse_header(self, header: bytes) -> tuple[int, int]:
         """
@@ -73,12 +127,14 @@ class GamePacketDecoder(GamePackets):
         id_ = struct.unpack("<H", header[2:4])[0]
         return id_, size
 
-    def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+    def _parse_header_encrypted(self, decrypted: list[int],
+                                extra: list[int]) -> tuple[int, int]:
         """
         Parse a decrypted 4-byte header into opcode and size.
 
         Args:
             decrypted: 4-byte decrypted header as integer list.
+            extra: Decrypted extended header bytes (unused before WotLK).
 
         Returns:
             Tuple of (opcode, payload_size).
@@ -104,32 +160,42 @@ class GamePacketDecoder(GamePackets):
 class GamePacketDecoderWotLK(GamePacketDecoder):
     """WotLK packet decoder with extended encrypted header format."""
 
-    def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+    def _extra_header_length(self, decrypted: list[int]) -> int:
         """
-        Parse a potentially 5-byte encrypted header for WotLK.
-
-        When the high bit of the first byte is set, the header is 5 bytes
-        (4 encrypted + 1 extra decrypted byte for the upper opcode bits).
-        Otherwise it follows the standard 4-byte format.
+        WotLK headers carry one extra byte when the size exceeds 0x7FFF.
 
         Args:
             decrypted: 4-byte decrypted header as integer list.
 
         Returns:
+            1 if the high bit of the first byte is set, otherwise 0.
+        """
+        return 1 if (decrypted[0] & 0x80) == 0x80 else 0
+
+    def _parse_header_encrypted(self, decrypted: list[int],
+                                extra: list[int]) -> tuple[int, int]:
+        """
+        Parse a potentially 5-byte encrypted header for WotLK.
+
+        When the high bit of the first byte is set, the header is 5 bytes
+        and the fifth (decrypted) byte holds the upper opcode bits.
+        Otherwise it follows the standard 4-byte format.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+            extra: Decrypted fifth header byte, or empty for 4-byte headers.
+
+        Returns:
             Tuple of (opcode, payload_size).
         """
-        if (decrypted[0] & 0x80) == 0x80:
-            crypt = global_state.game_crypt
-            if crypt:
-                next_byte = crypt.decrypt([0])[0]
-                size = (
-                    ((decrypted[0] & 0x7F) << 16)
-                    | ((decrypted[1] & 0xFF) << 8)
-                    | (decrypted[2] & 0xFF)
-                ) - 2
-                id_ = ((next_byte & 0xFF) << 8) | (decrypted[3] & 0xFF)
-                return id_, size
-            return self._parse_header_encrypted(decrypted)
+        if extra:
+            size = (
+                ((decrypted[0] & 0x7F) << 16)
+                | ((decrypted[1] & 0xFF) << 8)
+                | (decrypted[2] & 0xFF)
+            ) - 2
+            id_ = ((extra[0] & 0xFF) << 8) | (decrypted[3] & 0xFF)
+            return id_, size
         size = ((decrypted[0] & 0xFF) << 8 | decrypted[1] & 0xFF) - 2
         id_ = (decrypted[3] & 0xFF) << 8 | decrypted[2] & 0xFF
         return id_, size
@@ -201,7 +267,20 @@ class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
         id_ = struct.unpack("<H", header[2:4])[0]
         return id_, size
 
-    def _parse_header_encrypted(self, decrypted: list[int]) -> tuple[int, int]:
+    def _extra_header_length(self, decrypted: list[int]) -> int:
+        """
+        MoP headers are always exactly 4 bytes.
+
+        Args:
+            decrypted: 4-byte decrypted header as integer list.
+
+        Returns:
+            Always 0.
+        """
+        return 0
+
+    def _parse_header_encrypted(self, decrypted: list[int],
+                                extra: list[int]) -> tuple[int, int]:
         """
         Parse a MoP 4-byte encrypted header (compact layout).
 
@@ -210,6 +289,7 @@ class GamePacketDecoderMoP(GamePacketDecoderCataclysm, GamePacketsMoP):
 
         Args:
             decrypted: 4-byte decrypted header as integer list.
+            extra: Unused; MoP has no extended header.
 
         Returns:
             Tuple of (opcode, payload_size).
