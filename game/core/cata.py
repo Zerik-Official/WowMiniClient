@@ -326,7 +326,8 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
         return roster
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
-                            target_bytes: bytes | None) -> bytes:
+                            target_bytes: bytes | None,
+                            language: int | None = None) -> bytes:
         """
         Build a CMSG_MESSAGECHAT payload with bit-packed lengths.
 
@@ -334,12 +335,13 @@ class GamePacketHandlerCataclysm(GamePacketHandlerWotLK, GamePacketsCataclysm):
             tp: Chat type constant (unused in Cataclysm encoding).
             msg_bytes: Message text bytes.
             target_bytes: Target name bytes for whispers, or None.
+            language: Language id override; defaults to ``language_id``.
 
         Returns:
             Encoded payload bytes.
         """
         pw = PacketBitWriter()
-        pw.write_int_le(self.language_id)
+        pw.write_int_le(self.language_id if language is None else language)
         if target_bytes is not None:
             pw.write_bits(len(target_bytes), 10)
         pw.write_bits(len(msg_bytes), 9)
