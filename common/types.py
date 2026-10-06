@@ -170,6 +170,18 @@ class WowConfig:
 
 
 @dataclass
+class GmCommandsConfig:
+    """Discord-driven GM command execution settings."""
+
+    enabled: bool = False
+    channel: str | None = None
+    allowed_roles: set[int] = field(default_factory=set)
+    mode: str = "auto"
+    timeout: float = 5.0
+    blocked_commands: list[str] = field(default_factory=list)
+
+
+@dataclass
 class WowChatConfig:
     """Root configuration holding all sub-configurations."""
 
@@ -178,6 +190,7 @@ class WowChatConfig:
     guild: GuildConfig
     channels: list[ChannelConfig]
     filters: FiltersConfig | None = None
+    gm_commands: GmCommandsConfig = field(default_factory=GmCommandsConfig)
 
 
 class _Global:
