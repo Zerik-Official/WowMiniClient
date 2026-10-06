@@ -16,6 +16,7 @@ from common.types import (
     DiscordChannelConfig,
     DiscordConfig,
     FiltersConfig,
+    GmCommandsConfig,
     GuildConfig,
     GuildNotificationConfig,
     Platform,
@@ -179,6 +180,39 @@ def _parse_filters(data: Any) -> FiltersConfig | None:
     return FiltersConfig(enabled=enabled, patterns=patterns)
 
 
+_GM_COMMAND_MODES: frozenset[str] = frozenset({"auto", "azeroth", "trinity", "chat"})
+
+
+def _parse_gm_commands(data: dict[str, Any]) -> GmCommandsConfig:
+    """
+    Build GmCommandsConfig from the ``[gm_commands]`` TOML section.
+
+    Args:
+        data: GM commands section, or an empty dict if absent.
+
+    Returns:
+        Parsed GmCommandsConfig (disabled when the section is missing).
+
+    Raises:
+        ValueError: If ``mode`` is not one of auto, azeroth, trinity, chat.
+    """
+    mode = str(data.get("mode", "auto")).lower()
+    if mode not in _GM_COMMAND_MODES:
+        msg = f"Invalid gm_commands.mode '{mode}', expected one of {sorted(_GM_COMMAND_MODES)}"
+        raise ValueError(msg)
+    return GmCommandsConfig(
+        enabled=bool(data.get("enabled", False)),
+        channel=data.get("channel"),
+        allowed_roles={int(r) for r in data.get("allowed_roles", [])},
+        mode=mode,
+        timeout=float(data.get("timeout", 5.0)),
+        blocked_commands=[
+            str(c).strip().lstrip(".!").lower()
+            for c in data.get("blocked_commands", [])
+        ],
+    )
+
+
 def _parse_channels(data: dict[str, Any]) -> list[ChannelConfig]:
     """
     Parse the chat channel relay configuration.
@@ -294,6 +328,7 @@ def load_config(path: str | Path) -> WowChatConfig:
     guild_cfg = _parse_guild_config(guild_raw)
     channels = _parse_channels(chat_raw)
     filters = _parse_filters(filters_raw)
+    gm_commands = _parse_gm_commands(raw.get("gm_commands", {}))
 
     return WowChatConfig(
         discord=discord_cfg,
@@ -301,4 +336,5 @@ def load_config(path: str | Path) -> WowChatConfig:
         guild=guild_cfg,
         channels=channels,
         filters=filters,
+        gm_commands=gm_commands,
     )
