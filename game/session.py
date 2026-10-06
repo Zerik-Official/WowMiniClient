@@ -52,8 +52,10 @@ class WowSessionManager:
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                log("ERROR", Tags.MAIN, "Unexpected error in WoW loop, reconnecting...")
+            except Exception as e:
+                log("ERROR", Tags.MAIN,
+                    f"Unexpected error in WoW loop ({type(e).__name__}: {e}), "
+                    "reconnecting...")
 
             wait = delay.get_next()
             log("WARNING", Tags.MAIN,
