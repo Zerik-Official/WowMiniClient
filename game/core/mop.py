@@ -619,7 +619,8 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
         return msg.slice(length).decode("utf-8", errors="replace")
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
-                            target_bytes: bytes | None) -> bytes:
+                            target_bytes: bytes | None,
+                            language: int | None = None) -> bytes:
         """
         Build a CMSG_MESSAGECHAT packet for MoP.
 
@@ -627,12 +628,13 @@ class GamePacketHandlerMoP(GamePacketHandlerCataclysm, GamePacketsMoP):
             tp: Chat type (e.g. CHAT_MSG_WHISPER).
             msg_bytes: Message content as bytes.
             target_bytes: Target name as bytes (whisper target or channel name).
+            language: Language id override; defaults to ``language_id``.
 
         Returns:
             Serialised packet payload.
         """
         pw = PacketBitWriter()
-        pw.write_int_le(self.language_id)
+        pw.write_int_le(self.language_id if language is None else language)
         if target_bytes is not None and tp == ChatEvents.CHAT_MSG_CHANNEL:
             pw.write_bits(len(target_bytes), 9)
         pw.write_bits(len(msg_bytes), 8)
