@@ -17,6 +17,12 @@ from game.core.addon_info import ADDON_INFO
 from game.core.buffer import Packet, PacketWriter
 from common.types import WowExpansion, global_state
 from game.core.command_handler import GameCommandHandler
+from game.core.gm_commands import (
+    LANG_ADDON,
+    GmCommandExecutor,
+    GmCommandMode,
+    GmCommandResult,
+)
 from game.core.packets import (
     AuthResponseCodes,
     ChatNotify,
@@ -75,6 +81,11 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         self.received_char_enum = False
         self._queued_messages: dict[int, list[ChatMessage]] = {}
         self._ping_id = 0
+        gm_cfg = global_state.config.gm_commands
+        self.gm_commands = GmCommandExecutor(
+            self._send_addon_whisper, self._send_self_whisper,
+            mode=GmCommandMode(gm_cfg.mode), timeout=gm_cfg.timeout,
+        )
 
     def handle_packet(self, msg: Packet) -> list[tuple[int, bytes]]:
         """
@@ -139,12 +150,14 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             None.
         """
         self.in_world = False
+        self.gm_commands.cancel("Disconnected from the game server.")
         self.game_event_callback.disconnected()
 
     MAX_WOW_MESSAGE_LENGTH: int = 255
 
     def send_message_to_wow(self, tp: int, message: str,
-                            target: str | None = None) -> None:
+                            target: str | None = None,
+                            language: int | None = None) -> None:
         """
         Send a chat message to the WoW game server.
 
@@ -152,11 +165,64 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             tp: Chat message type constant (e.g. CHAT_MSG_GUILD).
             message: Text content of the message (truncated to 255 chars).
             target: Optional channel or target name for the message.
+            language: Language id override (e.g. LANG_ADDON); defaults to
+                the character's racial language.
         """
         message = message[:self.MAX_WOW_MESSAGE_LENGTH]
         payload = self._build_chat_message(tp, message.encode("utf-8"),
-                                           target.encode("utf-8") if target else None)
+                                           target.encode("utf-8") if target else None,
+                                           language)
         self.send(self.CMSG_MESSAGECHAT, payload)
+
+    async def execute_gm_command(self, command: str) -> GmCommandResult:
+        """
+        Execute a GM command on the server and wait for its reply.
+
+        Args:
+            command: Command text, with or without a leading dot.
+
+        Returns:
+            GmCommandResult with status and reply lines.
+        """
+        return await self.gm_commands.execute(command)
+
+    def _send_addon_whisper(self, message: str) -> None:
+        """
+        Whisper an addon message (LANG_ADDON) to the own character.
+
+        Args:
+            message: Addon text in ``Prefix\\tbody`` form.
+        """
+        self.send_message_to_wow(ChatEvents.CHAT_MSG_WHISPER, message,
+                                 global_state.config.wow.character, LANG_ADDON)
+
+    def _send_self_whisper(self, message: str) -> None:
+        """
+        Whisper a plain chat message to the own character.
+
+        Args:
+            message: Message text.
+        """
+        self.send_message_to_wow(ChatEvents.CHAT_MSG_WHISPER, message,
+                                 global_state.config.wow.character)
+
+    def _intercept_gm_response(self, tp: int, lang: int, text: str) -> bool:
+        """
+        Route GM command replies to the executor instead of the chat relay.
+
+        Args:
+            tp: Chat type constant.
+            lang: Language id of the message.
+            text: Message text.
+
+        Returns:
+            True if the message was consumed as a command reply.
+        """
+        if lang == LANG_ADDON and tp == ChatEvents.CHAT_MSG_WHISPER:
+            return self.gm_commands.on_addon_message(text)
+        if tp == ChatEvents.CHAT_MSG_SYSTEM:
+            return self.gm_commands.on_system_message(text)
+        return False
 
     def send_notification(self, message: str) -> None:
         """
@@ -393,6 +459,8 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             self._query_guild_name(out)
             self._update_guild_roster(out)
         self._join_channels(out)
+        if global_state.config.gm_commands.enabled:
+            self.gm_commands.start()
 
     def _run_keep_alive(self, out: list[tuple[int, bytes]]) -> None:
         """
@@ -636,28 +704,27 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
         """
         tp = msg.read_byte()
         lang = msg.read_int_le()
-        if lang == -1:
-            return None
 
         channel_name: str | None = None
         if tp == ChatEvents.CHAT_MSG_CHANNEL:
             channel_name = msg.read_string()
             msg.skip(4)
 
-        if not self._check_channel_enabled(tp, channel_name):
-            log("DEBUG", Tags.GAME, f"Unhandled chat type tp=0x{tp:02X} channel={channel_name}")
-            return None
-
         guid = msg.read_long_le()
-        if tp != ChatEvents.CHAT_MSG_SYSTEM and guid == self.self_character_id:
-            return None
-
         if tp in (ChatEvents.CHAT_MSG_SAY, ChatEvents.CHAT_MSG_YELL):
             msg.skip(8)
 
         txt_len = msg.read_int_le()
         txt = msg.slice(txt_len - 1).decode("utf-8", errors="replace")
         msg.skip(1)
+
+        if self._intercept_gm_response(tp, lang, txt) or lang == LANG_ADDON:
+            return None
+        if not self._check_channel_enabled(tp, channel_name):
+            log("DEBUG", Tags.GAME, f"Unhandled chat type tp=0x{tp:02X} channel={channel_name}")
+            return None
+        if tp != ChatEvents.CHAT_MSG_SYSTEM and guid == self.self_character_id:
+            return None
         is_gm = getattr(self, 'SMSG_GM_MESSAGECHAT', None) is not None and msg.id == self.SMSG_GM_MESSAGECHAT
         return ChatMessage(guid, tp, txt, channel_name, is_gm=is_gm)
 
@@ -830,7 +897,8 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             return
 
     def _build_chat_message(self, tp: int, msg_bytes: bytes,
-                            target_bytes: bytes | None) -> bytes:
+                            target_bytes: bytes | None,
+                            language: int | None = None) -> bytes:
         """
         Build a CMSG_MESSAGECHAT packet for Vanilla.
 
@@ -838,13 +906,14 @@ class GamePacketHandler(GamePackets, GameCommandHandler):
             tp: Chat type constant.
             msg_bytes: Message content as UTF-8 bytes.
             target_bytes: Optional target/channel name as bytes.
+            language: Language id override; defaults to ``language_id``.
 
         Returns:
             Serialised packet payload.
         """
         pw = PacketWriter()
         pw.write_int_le(tp)
-        pw.write_int_le(self.language_id)
+        pw.write_int_le(self.language_id if language is None else language)
         if target_bytes:
             pw.write_bytes(target_bytes)
             pw.write_byte(0)
