@@ -158,10 +158,7 @@ class GameConnector:
                     break
                 packets = self._decoder.feed(data)
                 for opcode, payload in packets:
-                    msg = Packet(opcode, payload)
-                    responses = self._handler.handle_packet(msg)
-                    for oid, pl in responses:
-                        self._send(oid, pl)
+                    self._dispatch(Packet(opcode, payload))
         except asyncio.CancelledError:
             raise
         except (ConnectionError, TimeoutError) as e:
@@ -170,6 +167,23 @@ class GameConnector:
             ping_task.cancel()
             keep_alive_task.cancel()
             self._handler.disconnect()
+
+    def _dispatch(self, msg: Packet) -> None:
+        """Handle one packet, logging handler errors without dropping the link.
+
+        Args:
+            msg: Decoded incoming packet.
+        """
+        if self._handler is None:
+            return
+        try:
+            responses = self._handler.handle_packet(msg)
+        except Exception as e:
+            log("ERROR", Tags.GAME,
+                f"Error handling packet {msg.id:04X}: {type(e).__name__}: {e}")
+            return
+        for oid, pl in responses:
+            self._send(oid, pl)
 
     async def _ping_loop(self) -> None:
         """Send CMSG_PING every 30 seconds while the handler is in the world."""
