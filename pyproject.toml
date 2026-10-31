@@ -1,0 +1,46 @@
+[project]
+name = "wowmini-client"
+version = "0.1.0"
+description = "Lightweight headless World of Warcraft client written in Python"
+requires-python = ">=3.12"
+dependencies = [
+    "colorama>=0.4.6",
+    "discord-py>=2.3.0",
+    "flask>=3.0.0",
+    "inquirerpy>=0.3.4",
+    "tomli-w>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+configurator = ["templates/*.html", "static/*.js"]
+data = ["*.csv"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true

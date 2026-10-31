@@ -1,0 +1,91 @@
+[discord]
+bot_system_channel = "bot-system"
+enable_dot_commands = true
+dot_commands_whitelist = []
+enable_commands_channels = []
+enable_tag_failed_notifications = true
+token = "your-discord-bot-token"
+
+[discord.raid_icons]
+enabled = false
+
+[wow]
+locale = "enUS"
+platform = "Mac"
+realmlist = "127.0.0.1:3724"
+version = "3.3.5"
+enable_server_motd = true
+realm = "MyRealm"
+account = "myaccount"
+password = "mypassword"
+character = "Mybot"
+
+[guild.promoted]
+enabled = true
+format = "`[%user] has promoted [%target] to [%rank].`"
+
+[guild.demoted]
+enabled = true
+format = "`[%user] has demoted [%target] to [%rank].`"
+
+[guild.online]
+enabled = false
+format = "`[%user] has come online.`"
+
+[guild.offline]
+enabled = false
+format = "`[%user] has gone offline.`"
+
+[guild.joined]
+enabled = true
+format = "`[%user] has joined the guild.`"
+
+[guild.left]
+enabled = true
+format = "`[%user] has left the guild.`"
+
+[guild.removed]
+enabled = true
+format = "`[%target] has been kicked out of the guild by [%user].`"
+
+[guild.motd]
+enabled = true
+format = "`Guild Message of the Day: %message`"
+
+[guild.achievement]
+enabled = true
+format = "%user has earned the achievement %achievement!"
+
+[[chat.channels]]
+direction = "both"
+
+[chat.channels.wow]
+type = "Guild"
+format = "%message"
+
+[chat.channels.discord]
+channel = "guild-chat"
+format = "[%user]: %message"
+
+[[chat.channels]]
+direction = "both"
+
+[chat.channels.wow]
+type = "Officer"
+format = "%message"
+
+[chat.channels.discord]
+channel = "officer-chat"
+format = "[%user]: %message"
+
+[filters]
+enabled = false
+patterns = []
+
+[gm_commands]
+enabled = false
+channel = "gm-commands"
+allowed_roles = []
+mode = "auto"
+timeout = 5.0
+blocked_commands = []

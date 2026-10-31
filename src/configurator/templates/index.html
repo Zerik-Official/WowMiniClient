@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WowMiniClient setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --color-night: #141a2e;
+      --color-panel: #1c2440;
+      --color-well: #10162a;
+      --color-bronze: #7d6a45;
+      --color-parchment: #e8dfc8;
+      --color-muted: #9aa0b8;
+      --color-quest: #ffd100;
+      --color-danger: #ff6b6b;
+      --font-display: "Marcellus", serif;
+      --font-body: "Source Sans 3", sans-serif;
+    }
+    @layer components {
+      .field { @apply block w-full rounded-md border border-bronze/40 bg-well px-3 py-2 text-parchment placeholder:text-muted/60 focus:border-quest focus:outline-none focus:ring-1 focus:ring-quest; }
+      .label { @apply mb-1 block text-sm font-semibold text-parchment; }
+      .hint { @apply mt-1 text-sm text-muted; }
+      .section { @apply scroll-mt-6 rounded-lg border border-bronze/50 bg-panel p-5 sm:p-7; }
+      .toggle { @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full bg-well ring-1 ring-bronze/50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-quest; }
+      .toggle[aria-checked="true"] { @apply bg-quest/80; }
+      .toggle span { @apply inline-block h-4 w-4 translate-x-1 rounded-full bg-parchment transition; }
+      .toggle[aria-checked="true"] span { @apply translate-x-6 bg-night; }
+      .btn { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-quest focus-visible:ring-offset-2 focus-visible:ring-offset-night; }
+      .btn-primary { @apply bg-quest text-night hover:bg-[#ffe04d]; }
+      .btn-ghost { @apply border border-bronze/60 text-parchment hover:border-quest; }
+      .chip { @apply inline-flex items-center gap-2 rounded bg-night px-2 py-1 text-sm ring-1 ring-bronze/50; }
+      .chat-line { text-shadow: 1px 1px 0 #000; }
+    }
+    a:focus-visible { outline: 2px solid #ffd100; outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+    html { scroll-behavior: smooth; }
+  </style>
+</head>
+<body class="min-h-screen bg-night font-body text-parchment antialiased">
+  <script id="initial-config" type="application/json">{{ config | tojson }}</script>
+  <script id="setup-key" type="application/json">{{ key | tojson }}</script>
+
+  <div class="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 lg:flex-row lg:py-12">
+    <aside class="lg:sticky lg:top-12 lg:h-fit lg:w-60">
+      <h1 class="font-display text-3xl leading-tight text-quest">WowMiniClient</h1>
+      <p class="mt-1 text-muted">{{ "Edit your configuration" if exists else "Set up your relay" }}</p>
+      <nav class="mt-6 flex gap-2 overflow-x-auto pb-2 lg:flex-col lg:gap-1 lg:overflow-visible" aria-label="Sections">
+        <a href="#discord" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-brands fa-discord w-5"></i> Discord bot</a>
+        <a href="#wow" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-solid fa-server w-5"></i> Server and character</a>
+        <a href="#chat" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-solid fa-comments w-5"></i> Chat relays</a>
+        <a href="#guild" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-solid fa-shield-halved w-5"></i> Guild events</a>
+        <a href="#gm" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-solid fa-terminal w-5"></i> GM commands</a>
+        <a href="#advanced" class="whitespace-nowrap rounded px-3 py-2 hover:bg-panel"><i class="fa-solid fa-sliders w-5"></i> Advanced</a>
+      </nav>
+      <p class="mt-6 hidden break-all text-sm text-muted lg:block">Writes to<br><code class="text-parchment">{{ config_path }}</code></p>
+    </aside>
+
+    <main class="flex-1 space-y-6 pb-28 lg:max-w-3xl">
+      <section id="discord" class="section">
+        <h2 class="font-display text-2xl">Discord bot</h2>
+        <p class="hint">Create a bot in the Discord developer portal, enable the Message Content intent and invite it to your server.</p>
+        <div class="mt-5 grid gap-5 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <label class="label" for="discord-token">Bot token</label>
+            <div class="relative">
+              <input id="discord-token" class="field pr-11" type="password" autocomplete="off" data-path="discord.token" data-required>
+              <button type="button" class="absolute inset-y-0 right-0 px-3 text-muted hover:text-quest" data-reveal="discord-token" aria-label="Show token"><i class="fa-solid fa-eye"></i></button>
+            </div>
+            <p class="hint">Leave it empty if you set the <code>DISCORD_TOKEN</code> environment variable.</p>
+          </div>
+          <div>
+            <label class="label" for="discord-system">Bot status channel</label>
+            <input id="discord-system" class="field" data-path="discord.bot_system_channel" placeholder="bot-system">
+            <p class="hint">Connection notices and guild events without their own channel.</p>
+          </div>
+          <div>
+            <label class="label" for="discord-items">Item database URL</label>
+            <input id="discord-items" class="field" data-path="discord.item_database" placeholder="https://wowhead.com">
+            <p class="hint">Used to turn item links into clickable URLs.</p>
+          </div>
+          <div class="flex items-center justify-between gap-4 sm:col-span-2">
+            <div>
+              <p class="label mb-0">Dot commands</p>
+              <p class="hint mt-0">Let Discord users run <code>.who</code>, <code>.gmotd</code> and <code>.r</code>.</p>
+            </div>
+            <button type="button" class="toggle" role="switch" data-path="discord.enable_dot_commands" aria-label="Dot commands"><span></span></button>
+          </div>
+        </div>
+      </section>
+
+      <section id="wow" class="section">
+        <h2 class="font-display text-2xl">Server and character</h2>
+        <p class="hint">Use an account dedicated to the bot. The character stays logged in while the client runs.</p>
+        <div class="mt-5 grid gap-5 sm:grid-cols-2">
+          <div>
+            <label class="label" for="wow-realmlist">Realmlist</label>
+            <input id="wow-realmlist" class="field" data-path="wow.realmlist" placeholder="logon.example.com:3724" data-required>
+          </div>
+          <div>
+            <label class="label" for="wow-realm">Realm name</label>
+            <input id="wow-realm" class="field" data-path="wow.realm" placeholder="As shown in the realm list" data-required>
+          </div>
+          <div>
+            <label class="label" for="wow-version">Game version</label>
+            <select id="wow-version" class="field" data-path="wow.version">
+              {% for version in versions %}<option value="{{ version }}">{{ version }}</option>{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="wow-character">Character</label>
+            <input id="wow-character" class="field" data-path="wow.character" data-required>
+          </div>
+          <div>
+            <label class="label" for="wow-account">Account</label>
+            <input id="wow-account" class="field" data-path="wow.account" autocomplete="off" data-required>
+          </div>
+          <div>
+            <label class="label" for="wow-password">Password</label>
+            <div class="relative">
+              <input id="wow-password" class="field pr-11" type="password" autocomplete="off" data-path="wow.password" data-required>
+              <button type="button" class="absolute inset-y-0 right-0 px-3 text-muted hover:text-quest" data-reveal="wow-password" aria-label="Show password"><i class="fa-solid fa-eye"></i></button>
+            </div>
+          </div>
+          <div>
+            <label class="label" for="wow-locale">Locale</label>
+            <select id="wow-locale" class="field" data-path="wow.locale">
+              {% for locale in locales %}<option value="{{ locale }}">{{ locale }}</option>{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="wow-platform">Platform</label>
+            <select id="wow-platform" class="field" data-path="wow.platform">
+              {% for platform in platforms %}<option value="{{ platform }}">{{ platform }}</option>{% endfor %}
+            </select>
+            <p class="hint">Mac avoids Warden checks on most servers.</p>
+          </div>
+          <div class="flex items-center justify-between gap-4 sm:col-span-2">
+            <div>
+              <p class="label mb-0">Server message of the day</p>
+              <p class="hint mt-0">Post it to the status channel after logging in.</p>
+            </div>
+            <button type="button" class="toggle" role="switch" data-path="wow.enable_server_motd" aria-label="Server message of the day"><span></span></button>
+          </div>
+        </div>
+      </section>
+
+      <section id="chat" class="section">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 class="font-display text-2xl">Chat relays</h2>
+            <p class="hint">Each relay links one WoW chat to one Discord channel. The preview shows how a message will look.</p>
+          </div>
+          <button type="button" class="btn btn-ghost" id="add-channel"><i class="fa-solid fa-plus"></i> Add relay</button>
+        </div>
+        <ul id="channel-list" class="mt-5 space-y-3"></ul>
+        <p class="hint mt-4">Discord format: <code>%user</code>, <code>%message</code>, <code>%target</code> (custom channel). WoW format: <code>%message</code>.</p>
+      </section>
+
+      <section id="guild" class="section">
+        <h2 class="font-display text-2xl">Guild events</h2>
+        <p class="hint">Choose which guild events are posted. Without a channel they go to the bot status channel.</p>
+        <div class="mt-5 divide-y divide-bronze/30">
+          {% for key, label in guild_events.items() %}
+          <div class="grid gap-3 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <p class="font-semibold">{{ label }}</p>
+            <button type="button" class="toggle sm:row-start-1 sm:col-start-2" role="switch" data-path="guild.{{ key }}.enabled" aria-label="{{ label }}"><span></span></button>
+            <div class="grid gap-3 sm:col-span-2 sm:grid-cols-[2fr_1fr]">
+              <input class="field" data-path="guild.{{ key }}.format" aria-label="{{ label }} format">
+              <input class="field" data-path="guild.{{ key }}.channel" placeholder="Default channel" aria-label="{{ label }} channel">
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="gm" class="section">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="font-display text-2xl">GM commands</h2>
+            <p class="hint">Members with an allowed role can run server commands by writing them in a Discord channel. The character needs GM rights on the server.</p>
+          </div>
+          <button type="button" class="toggle mt-2" role="switch" data-path="gm_commands.enabled" aria-label="GM commands"><span></span></button>
+        </div>
+        <div class="mt-5 grid gap-5 sm:grid-cols-2" data-depends="gm_commands.enabled">
+          <div>
+            <label class="label" for="gm-channel">Command channel</label>
+            <input id="gm-channel" class="field" data-path="gm_commands.channel" placeholder="gm-commands">
+          </div>
+          <div>
+            <label class="label" for="gm-mode">Transport</label>
+            <select id="gm-mode" class="field" data-path="gm_commands.mode">
+              {% for mode in gm_modes %}<option value="{{ mode }}">{{ mode }}</option>{% endfor %}
+            </select>
+            <p class="hint"><code>auto</code> detects the core; <code>chat</code> sends them as chat messages.</p>
+          </div>
+          <div>
+            <label class="label" for="gm-timeout">Reply timeout (seconds)</label>
+            <input id="gm-timeout" class="field" type="number" min="1" step="0.5" data-path="gm_commands.timeout" data-kind="number">
+          </div>
+          <div class="sm:col-span-2">
+            <p class="label">Allowed role IDs</p>
+            <div class="chips" data-path="gm_commands.allowed_roles" data-placeholder="Paste a role ID and press Enter" data-numeric></div>
+            <p class="hint">Enable developer mode in Discord, right click a role and copy its ID.</p>
+          </div>
+          <div class="sm:col-span-2">
+            <p class="label">Blocked commands</p>
+            <div class="chips" data-path="gm_commands.blocked_commands" data-placeholder="For example: server shutdown"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="advanced" class="section">
+        <h2 class="font-display text-2xl">Advanced</h2>
+        <p class="hint">Optional settings. The defaults work for most servers.</p>
+        <div class="mt-5 space-y-6">
+          <div>
+            <p class="label">Dot command whitelist</p>
+            <div class="chips" data-path="discord.dot_commands_whitelist" data-placeholder="Allowed command, empty means all"></div>
+          </div>
+          <div>
+            <p class="label">Channels that accept commands</p>
+            <div class="chips" data-path="discord.enable_commands_channels" data-placeholder="Channel name, empty means all"></div>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="label mb-0">Failed mention notices</p>
+              <p class="hint mt-0">Warn in Discord when a WoW message mentions someone who cannot be found.</p>
+            </div>
+            <button type="button" class="toggle" role="switch" data-path="discord.enable_tag_failed_notifications" aria-label="Failed mention notices"><span></span></button>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="label mb-0">Global message filters</p>
+              <p class="hint mt-0">Drop WoW messages that match any regular expression.</p>
+            </div>
+            <button type="button" class="toggle" role="switch" data-path="filters.enabled" aria-label="Global message filters"><span></span></button>
+          </div>
+          <div data-depends="filters.enabled">
+            <div class="chips" data-path="filters.patterns" data-placeholder="Regular expression"></div>
+          </div>
+          <div>
+            <label class="label" for="gm-icon">GM message icon</label>
+            <input id="gm-icon" class="field" data-path="discord.gm_icon" placeholder="<:GMIcon:123456789>">
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="label mb-0">Raid target icons</p>
+              <p class="hint mt-0">Replace raid markers with custom Discord emojis.</p>
+            </div>
+            <button type="button" class="toggle" role="switch" data-path="discord.raid_icons.enabled" aria-label="Raid target icons"><span></span></button>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2" data-depends="discord.raid_icons.enabled">
+            {% for slot in raid_slots %}
+            <input class="field" data-path="discord.raid_icons.{{ slot }}" placeholder="Icon {{ slot }} emoji" aria-label="Raid icon {{ slot }}">
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="fixed inset-x-0 bottom-0 border-t border-bronze/50 bg-night/95 backdrop-blur">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <p id="status" class="text-sm text-muted" role="status" aria-live="polite">Changes are written only when you save.</p>
+      <div class="flex gap-2">
+        <button type="button" class="btn btn-ghost" id="close-setup"><i class="fa-solid fa-power-off"></i> Close setup</button>
+        <button type="button" class="btn btn-primary" id="save"><i class="fa-solid fa-floppy-disk"></i> Save configuration</button>
+      </div>
+    </div>
+  </footer>
+
+  <template id="channel-template">
+    <li class="rounded-md border border-bronze/40 bg-well">
+      <div class="flex items-center gap-3 p-3">
+        <button type="button" class="flex flex-1 items-center gap-3 text-left" data-action="toggle" aria-expanded="false">
+          <span class="chat-line min-w-0 flex-1 truncate font-semibold" data-preview="wow"></span>
+          <i class="fa-solid text-muted" data-preview="direction"></i>
+          <span class="min-w-0 flex-1 truncate text-muted" data-preview="discord"></span>
+        </button>
+        <button type="button" class="px-2 text-muted hover:text-danger" data-action="remove" aria-label="Remove relay"><i class="fa-solid fa-trash"></i></button>
+      </div>
+      <div class="hidden border-t border-bronze/30" data-editor><div class="grid gap-4 p-4 sm:grid-cols-2">
+        <div>
+          <label class="label">WoW chat</label>
+          <select class="field" data-field="wow.type">
+            {% for chat_type in chat_types %}<option value="{{ chat_type }}">{{ chat_type }}</option>{% endfor %}
+          </select>
+        </div>
+        <div data-only-custom>
+          <label class="label">Custom channel name</label>
+          <input class="field" data-field="wow.channel" placeholder="world">
+        </div>
+        <div>
+          <label class="label">Direction</label>
+          <select class="field" data-field="direction">
+            {% for key, name in directions.items() %}<option value="{{ key }}">{{ name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="label">Discord channel</label>
+          <input class="field" data-field="discord.channel" placeholder="guild-chat">
+        </div>
+        <div>
+          <label class="label">Format in Discord</label>
+          <input class="field" data-field="discord.format" placeholder="[%user]: %message">
+        </div>
+        <div>
+          <label class="label">Format in WoW</label>
+          <input class="field" data-field="wow.format" placeholder="%message">
+        </div>
+      </div></div>
+    </li>
+  </template>
+
+  <div id="done" class="fixed inset-0 z-10 hidden items-center justify-center bg-night/90 p-4" role="dialog" aria-modal="true" aria-labelledby="done-title">
+    <div class="max-w-md rounded-lg border border-bronze/60 bg-panel p-7 text-center">
+      <i class="fa-solid fa-circle-check text-4xl text-quest"></i>
+      <h2 id="done-title" class="mt-3 font-display text-2xl">Configuration saved</h2>
+      <p class="mt-2 text-muted">Start the client from the project folder with:</p>
+      <code class="mt-3 block rounded bg-well px-3 py-2">python src/main.py</code>
+      <div class="mt-6 flex justify-center gap-2">
+        <button type="button" class="btn btn-ghost" id="keep-editing">Keep editing</button>
+        <button type="button" class="btn btn-primary" id="finish"><i class="fa-solid fa-power-off"></i> Close setup</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
