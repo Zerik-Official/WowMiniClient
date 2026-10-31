@@ -1,2 +1,5 @@
 discord-py>=2.3.0
 colorama>=0.4.6
+flask>=3.0.0
+inquirerpy>=0.3.4
+tomli-w>=1.0.0
