@@ -220,5 +220,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Project rules (local only, never push)
-RULES/
+# Ide
+.vscode/
