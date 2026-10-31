@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "colorama>=0.4.6",
     "discord-py>=2.3.0",
+    "flask>=3.0.0",
+    "inquirerpy>=0.3.4",
+    "tomli-w>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -20,8 +23,15 @@ requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-exclude = ["tests"]
+where = ["src"]
+
+[tool.setuptools.package-data]
+configurator = ["templates/*.html", "static/*.js"]
+data = ["*.csv"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
